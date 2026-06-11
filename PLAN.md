@@ -266,20 +266,21 @@ anyway), JIT-compiled formula engine.
 
 ## 10. Expected performance vs. the field
 
-> **Phase-0 measurements (2026-06-11, Docker on Apple Silicon, PHP 8.4,
+> **Phase-0 measurements (2026-06-11, Docker on Apple Silicon, PHP 8.5,
 > write N rows × 10 mixed columns, single process):**
 >
 > | Library | 100k rows | 1M rows | Peak PHP memory |
 > |---|---|---|---|
-> | PhpSpreadsheet 5.8 | 16.16s | n/a (multi-GB) | 665MB at 100k |
-> | rap2hpoutre/fast-excel | 3.84s | — | 4MB |
-> | OpenSpout 4.x | 3.55s | 35.96s | 4MB |
-> | fast-excel-writer 6.x | 2.54s | 26.60s | 4MB |
-> | **easy-excel** | **0.82s** | **7.36s** | **4MB** |
+> | PhpSpreadsheet 5.8 | 14.74s | n/a (multi-GB) | 665MB at 100k |
+> | rap2hpoutre/fast-excel | 4.00s | — | 4MB |
+> | OpenSpout 4.x | 3.64s | 36.74s | 4MB |
+> | fast-excel-writer 6.x | 2.67s | 28.16s | 4MB |
+> | **easy-excel** | **0.82s** | **7.85s** | **4MB** |
 >
-> Measured: **3.6× fast-excel-writer, 4.9× OpenSpout, ~20× PhpSpreadsheet**
+> Measured: **3.2–3.6× fast-excel-writer, 4.4–4.7× OpenSpout, ~18× PhpSpreadsheet**
 > at OpenSpout-class constant memory — within the estimated bands below
-> (1M-row estimate was 8–20s; measured 7.4s). Raw CSV: `bench/results.csv`.
+> (1M-row estimate was 8–20s; measured 7.8s). Raw CSV: `bench/results.csv`;
+> committed snapshot: `bench/baseline-2026-06-11-php8.5.csv`.
 
 ### Original estimates (pre-implementation — kept for accountability)
 
@@ -328,7 +329,7 @@ easy-excel/
 ├── bench/                      # Phase 0 rig: same workloads across all 5 libraries,
 │   │                           # docker-compose pinned environment, results committed as CSV
 │   └── workloads/              # 1M-row write, 100k read, styled report, template fill
-└── .github/workflows/          # build matrix (PHP 8.3/8.4), govulncheck, bench-on-tag
+└── .github/workflows/          # build matrix (PHP 8.4/8.5), govulncheck, bench-on-tag
 ```
 
 ## 12. Testing strategy

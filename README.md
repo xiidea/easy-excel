@@ -41,7 +41,7 @@ make test                 # = docker build --target=go-test / --target=php-test
 make build                # produces the frankenphp-easy-excel image
 
 # or pull the published image
-docker pull ghcr.io/ronisaha/frankenphp-easy-excel:latest
+docker pull ghcr.io/xiidea/frankenphp8.5-easy-excel:latest
 ```
 
 Use the shim in your app (the image ships it at `/opt/easy-excel/php`):
@@ -106,16 +106,16 @@ Notes:
 
 ## Measured performance
 
-Write N rows × 10 mixed columns, one process per run (Docker, PHP 8.4,
-Apple Silicon; `bench/results.csv`):
+Write N rows × 10 mixed columns, one process per run (Docker, PHP 8.5,
+Apple Silicon; `bench/baseline-2026-06-11-php8.5.csv`):
 
 | Library | 100k rows | 1M rows | Peak PHP memory |
 |---|---|---|---|
-| PhpSpreadsheet 5.8 | 16.16s | — | 665MB at 100k |
-| rap2hpoutre/fast-excel | 3.84s | — | 4MB |
-| OpenSpout 4.x | 3.55s | 35.96s | 4MB |
-| fast-excel-writer 6.x | 2.54s | 26.60s | 4MB |
-| **easy-excel** | **0.82s** | **7.36s** | **4MB** |
+| PhpSpreadsheet 5.8 | 14.74s | — | 665MB at 100k |
+| rap2hpoutre/fast-excel | 4.00s | — | 4MB |
+| OpenSpout 4.x | 3.64s | 36.74s | 4MB |
+| fast-excel-writer 6.x | 2.67s | 28.16s | 4MB |
+| **easy-excel** | **0.82s** | **7.85s** | **4MB** |
 
 ## Status
 
