@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Go unit tests (race detector)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: go-test
+          cache-from: type=gha,scope=go-test
+          cache-to: type=gha,scope=go-test,mode=max
+
+  php-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ["8.3", "8.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: PHP shim tests (fake ABI)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: php-test
+          build-args: PHP_VERSION=${{ matrix.php }}
+          cache-from: type=gha,scope=php-test-${{ matrix.php }}
+          cache-to: type=gha,scope=php-test-${{ matrix.php }},mode=max
+
+  # Compile-verifies the bridge: extension-init generation + full xcaddy
+  # build against real PHP ZTS headers.
+  extension-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build FrankenPHP with easy-excel
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: build
+          cache-from: type=gha,scope=extension
+          cache-to: type=gha,scope=extension,mode=max
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: extension/go.sum
+      - run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd extension && govulncheck ./registry/... ./limits/... ./exio/... ./compat/... ./core/...

@@ -8,7 +8,10 @@
       "WebFetch(domain:github.com)",
       "Bash(go mod *)",
       "Bash(go build *)",
-      "Bash(gofmt -l .)"
+      "Bash(gofmt -l .)",
+      "Bash(docker version *)",
+      "Bash(docker buildx *)",
+      "Bash(docker build *)"
     ]
   }
 }

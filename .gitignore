@@ -1,0 +1,14 @@
+# build artifacts
+/frankenphp
+extension/build/
+
+# composer
+vendor/
+composer.lock
+
+# bench outputs
+bench/results.csv
+bench/*.xlsx
+
+# OS noise
+.DS_Store
