@@ -1,0 +1,23 @@
+{
+    "name": "easy-excel/polyfill",
+    "description": "PhpSpreadsheet-compatible API backed by the easy-excel FrankenPHP extension (Go/excelize).",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.3"
+    },
+    "suggest": {
+        "ext-easy_excel": "The FrankenPHP native extension; without it the compat aliases stay disabled."
+    },
+    "autoload": {
+        "psr-4": {
+            "EasyExcel\\": "src/EasyExcel/"
+        },
+        "files": [
+            "src/bootstrap.php"
+        ]
+    },
+    "scripts": {
+        "test": "php tests/run.php"
+    }
+}

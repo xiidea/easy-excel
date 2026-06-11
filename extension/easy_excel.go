@@ -103,12 +103,12 @@ func goStr(s *C.zend_string) string {
 
 // --- lifecycle ----------------------------------------------------------------
 
-// export_php:function easy_excel_version(): string
+//export_php:function easy_excel_version(): string
 func easy_excel_version() unsafe.Pointer {
 	return frankenphp.PHPString(version, false)
 }
 
-// export_php:function easy_excel_new(): array
+//export_php:function easy_excel_new(): array
 func easy_excel_new() unsafe.Pointer {
 	wb, err := core.New(env)
 	if err != nil {
@@ -117,7 +117,7 @@ func easy_excel_new() unsafe.Pointer {
 	return pair(handles.Put(wb), nil)
 }
 
-// export_php:function easy_excel_open(string $path): array
+//export_php:function easy_excel_open(string $path): array
 func easy_excel_open(path *C.zend_string) unsafe.Pointer {
 	wb, err := core.Open(goStr(path), env)
 	if err != nil {
@@ -126,7 +126,7 @@ func easy_excel_open(path *C.zend_string) unsafe.Pointer {
 	return pair(handles.Put(wb), nil)
 }
 
-// export_php:function easy_excel_close(int $handle): ?string
+//export_php:function easy_excel_close(int $handle): ?string
 func easy_excel_close(handle int64) unsafe.Pointer {
 	v, err := handles.Remove(handle)
 	if err != nil {
@@ -142,7 +142,7 @@ func easy_excel_close(handle int64) unsafe.Pointer {
 
 // --- sheet management ----------------------------------------------------------
 
-// export_php:function easy_excel_add_sheet(int $handle, string $name): array
+//export_php:function easy_excel_add_sheet(int $handle, string $name): array
 func easy_excel_add_sheet(handle int64, name *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -152,7 +152,7 @@ func easy_excel_add_sheet(handle int64, name *C.zend_string) unsafe.Pointer {
 	return pair(int64(idx), err)
 }
 
-// export_php:function easy_excel_delete_sheet(int $handle, string $name): ?string
+//export_php:function easy_excel_delete_sheet(int $handle, string $name): ?string
 func easy_excel_delete_sheet(handle int64, name *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -161,7 +161,7 @@ func easy_excel_delete_sheet(handle int64, name *C.zend_string) unsafe.Pointer {
 	return errOnly(wb.DeleteSheet(goStr(name)))
 }
 
-// export_php:function easy_excel_rename_sheet(int $handle, string $old, string $new): ?string
+//export_php:function easy_excel_rename_sheet(int $handle, string $old, string $new): ?string
 func easy_excel_rename_sheet(handle int64, oldName, newName *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -170,7 +170,7 @@ func easy_excel_rename_sheet(handle int64, oldName, newName *C.zend_string) unsa
 	return errOnly(wb.RenameSheet(goStr(oldName), goStr(newName)))
 }
 
-// export_php:function easy_excel_sheets(int $handle): array
+//export_php:function easy_excel_sheets(int $handle): array
 func easy_excel_sheets(handle int64) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -184,7 +184,7 @@ func easy_excel_sheets(handle int64) unsafe.Pointer {
 	return pair(list, nil)
 }
 
-// export_php:function easy_excel_set_active_sheet(int $handle, int $index): ?string
+//export_php:function easy_excel_set_active_sheet(int $handle, int $index): ?string
 func easy_excel_set_active_sheet(handle, index int64) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -193,7 +193,7 @@ func easy_excel_set_active_sheet(handle, index int64) unsafe.Pointer {
 	return errOnly(wb.SetActiveSheet(int(index)))
 }
 
-// export_php:function easy_excel_active_sheet(int $handle): array
+//export_php:function easy_excel_active_sheet(int $handle): array
 func easy_excel_active_sheet(handle int64) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -205,7 +205,7 @@ func easy_excel_active_sheet(handle int64) unsafe.Pointer {
 
 // --- write path -----------------------------------------------------------------
 
-// export_php:function easy_excel_write_rows(int $handle, string $sheet, int $startRow, int $startCol, array $rows): ?string
+//export_php:function easy_excel_write_rows(int $handle, string $sheet, int $startRow, int $startCol, array $rows): ?string
 func easy_excel_write_rows(handle int64, sheet *C.zend_string, startRow, startCol int64, rows *C.zend_array) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -234,7 +234,7 @@ func easy_excel_write_rows(handle int64, sheet *C.zend_string, startRow, startCo
 	return errOnly(wb.WriteRows(goStr(sheet), int(startRow), int(startCol), batch))
 }
 
-// export_php:function easy_excel_set_cell(int $handle, string $sheet, string $cell, array $value): ?string
+//export_php:function easy_excel_set_cell(int $handle, string $sheet, string $cell, array $value): ?string
 func easy_excel_set_cell(handle int64, sheet, cell *C.zend_string, value *C.zend_array) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -262,7 +262,7 @@ func easy_excel_set_cell(handle int64, sheet, cell *C.zend_string, value *C.zend
 
 // --- read path --------------------------------------------------------------------
 
-// export_php:function easy_excel_get_cell(int $handle, string $sheet, string $cell, int $mode): array
+//export_php:function easy_excel_get_cell(int $handle, string $sheet, string $cell, int $mode): array
 func easy_excel_get_cell(handle int64, sheet, cell *C.zend_string, mode int64) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -272,7 +272,7 @@ func easy_excel_get_cell(handle int64, sheet, cell *C.zend_string, mode int64) u
 	return pair(v, err)
 }
 
-// export_php:function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw): array
+//export_php:function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw): array
 func easy_excel_read_rows(handle int64, sheet *C.zend_string, startRow, maxRows int64, raw bool) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -293,7 +293,7 @@ func easy_excel_read_rows(handle int64, sheet *C.zend_string, startRow, maxRows 
 	return pair([]any{out, more}, nil)
 }
 
-// export_php:function easy_excel_dimensions(int $handle, string $sheet): array
+//export_php:function easy_excel_dimensions(int $handle, string $sheet): array
 func easy_excel_dimensions(handle int64, sheet *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -305,7 +305,7 @@ func easy_excel_dimensions(handle int64, sheet *C.zend_string) unsafe.Pointer {
 
 // --- styling / structure -------------------------------------------------------------
 
-// export_php:function easy_excel_set_number_format(int $handle, string $sheet, string $range, string $code): ?string
+//export_php:function easy_excel_set_number_format(int $handle, string $sheet, string $range, string $code): ?string
 func easy_excel_set_number_format(handle int64, sheet, ref, code *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -314,7 +314,7 @@ func easy_excel_set_number_format(handle int64, sheet, ref, code *C.zend_string)
 	return errOnly(wb.SetNumberFormat(goStr(sheet), goStr(ref), goStr(code)))
 }
 
-// export_php:function easy_excel_merge_cells(int $handle, string $sheet, string $range): ?string
+//export_php:function easy_excel_merge_cells(int $handle, string $sheet, string $range): ?string
 func easy_excel_merge_cells(handle int64, sheet, ref *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -325,7 +325,7 @@ func easy_excel_merge_cells(handle int64, sheet, ref *C.zend_string) unsafe.Poin
 
 // --- save -------------------------------------------------------------------------
 
-// export_php:function easy_excel_save_xlsx(int $handle, string $path): ?string
+//export_php:function easy_excel_save_xlsx(int $handle, string $path): ?string
 func easy_excel_save_xlsx(handle int64, path *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -334,7 +334,7 @@ func easy_excel_save_xlsx(handle int64, path *C.zend_string) unsafe.Pointer {
 	return errOnly(wb.SaveXlsx(goStr(path)))
 }
 
-// export_php:function easy_excel_save_csv(int $handle, string $path, string $sheet, string $delimiter, bool $crlf, bool $bom, bool $guardFormulas): ?string
+//export_php:function easy_excel_save_csv(int $handle, string $path, string $sheet, string $delimiter, bool $crlf, bool $bom, bool $guardFormulas): ?string
 func easy_excel_save_csv(handle int64, path, sheet, delimiter *C.zend_string, crlf, bom, guard bool) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
@@ -349,7 +349,7 @@ func easy_excel_save_csv(handle int64, path, sheet, delimiter *C.zend_string, cr
 
 // --- observability ------------------------------------------------------------------
 
-// export_php:function easy_excel_stats(): array
+//export_php:function easy_excel_stats(): array
 func easy_excel_stats() unsafe.Pointer {
 	return frankenphp.PHPPackedArray([]any{
 		int64(handles.Len()),
