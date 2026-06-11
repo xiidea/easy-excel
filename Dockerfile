@@ -68,4 +68,4 @@ COPY --from=build /usr/local/bin/frankenphp-easy-excel /usr/local/bin/frankenphp
 COPY php/ /opt/easy-excel/php/
 LABEL org.opencontainers.image.title="frankenphp-easy-excel" \
       org.opencontainers.image.description="FrankenPHP with the easy-excel (Go/excelize) spreadsheet extension" \
-      org.opencontainers.image.source="https://github.com/ronisaha/easy-excel"
+      org.opencontainers.image.source="https://github.com/xiidea/easy-excel"

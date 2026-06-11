@@ -13,7 +13,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/frankenphp-easy-excel
+  IMAGE: ghcr.io/${{ github.repository_owner }}/frankenphp8.4-easy-excel
 
 jobs:
   publish-image:
