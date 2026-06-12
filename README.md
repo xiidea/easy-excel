@@ -9,7 +9,8 @@ Target: PhpSpreadsheet's ergonomics at OpenSpout-class (constant) memory and a
 multiple of both libraries' throughput. Design rationale, bottleneck analysis and
 measured claims live in [PLAN.md](PLAN.md); API coverage in [COMPAT.md](COMPAT.md);
 formula coverage in [FORMULAS.md](FORMULAS.md); the raw extension API (no
-composer package needed) in [NATIVE.md](NATIVE.md).
+composer package needed) in [NATIVE.md](NATIVE.md); known gaps in
+[MISSING.md](MISSING.md).
 
 ## How it works
 

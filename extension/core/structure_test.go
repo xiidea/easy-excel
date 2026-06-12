@@ -388,6 +388,44 @@ func TestStructureOpsOnLoadedFile(t *testing.T) {
 	}
 }
 
+func TestBroadLateStyleKeepsNarrowEarlierStyles(t *testing.T) {
+	// the ERP-report pattern: write data, apply column number formats, then a
+	// broad alignment over everything — the broad rect must not clobber the
+	// narrower formats in the replay path (PhpSpreadsheet layers per cell)
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	path := filepath.Join(t.TempDir(), "layered.xlsx")
+
+	fillRows(t, w, "Worksheet", 1, 15) // streamed first → styles replay at save
+	if err := w.SetNumberFormat("Worksheet", "C8:C15", "0.00%"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.ApplyStyle("Worksheet", "A1:C15", `{"alignment":{"vertical":"center"}}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.ApplyStyle("Worksheet", "A8:A15", `{"font":{"bold":true}}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SaveXlsx(path); err != nil {
+		t.Fatal(err)
+	}
+	f := reopen(t, path)
+	if v, _ := f.GetCellValue("Worksheet", "C8"); v != "150.00%" {
+		t.Errorf("C8 formatted = %q: broad style clobbered the number format", v)
+	}
+	s := cellStyle(t, f, "Worksheet", "C8")
+	if s.Alignment == nil || s.Alignment.Vertical != "center" {
+		t.Errorf("C8 lost the broad alignment: %+v", s.Alignment)
+	}
+	if s = cellStyle(t, f, "Worksheet", "A9"); s.Font == nil || !s.Font.Bold ||
+		s.Alignment == nil || s.Alignment.Vertical != "center" {
+		t.Errorf("A9 should layer bold over alignment: font=%+v align=%+v", s.Font, s.Alignment)
+	}
+}
+
 func TestFormattedReadSeesQueuedStyles(t *testing.T) {
 	w, err := New(testEnv())
 	if err != nil {

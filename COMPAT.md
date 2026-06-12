@@ -84,10 +84,14 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     formats, images, protection, charts** — excelize cannot stream these, so
     they are applied at save (degrading once if the sheet streamed). The data
     path itself stays streaming.
-12. **Range styles assume uniform ranges** — `getStyle('A1:C10')` applies one
-    merged style to the whole range. Earlier styles fully containing the
-    range are layered in (like PhpSpreadsheet); partially-overlapping earlier
-    styles are not re-read per cell.
+12. **Range style layering** — `getStyle('A1:C10')` applies one merged style
+    per region. Earlier styles fully containing the range are folded in, and
+    intersections with partially-overlapping earlier styles are re-applied
+    with their own fold (so a broad late style does not clobber narrower
+    earlier ones — the column-formats-then-sheet-alignment pattern works).
+    Only deeper overlap chains (three-way partial overlaps whose pairwise
+    intersections again partially overlap) can differ from PhpSpreadsheet's
+    strict per-cell layering.
 13. **Full-column styles** (`getStyle('C')`) on streamed sheets style every
     written cell; cells never written in that column stay default (the column
     style is also recorded for files saved without streaming).

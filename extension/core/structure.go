@@ -542,14 +542,64 @@ func (w *Workbook) replaySheet(sheet string, st *sheetState) error {
 	return nil
 }
 
-// applyStyleEntry interns the merge-folded spec for log[idx] and applies it.
-// The fold layers every earlier entry whose rect contains this one, mirroring
-// PhpSpreadsheet's partial-style application order.
+// applyStyleEntry applies log[idx]: first its own rect with the fold of every
+// earlier containing entry, then — because one SetCellStyle per rect would
+// let a broad later style clobber narrower earlier ones (e.g. column number
+// formats followed by a sheet-wide alignment) — the intersections with every
+// earlier overlapping entry are re-applied with their own fold, restoring
+// PhpSpreadsheet's per-cell layering for the overlap regions.
 func (w *Workbook) applyStyleEntry(sheet string, st *sheetState, idx int) error {
 	e := &st.styleLog[idx]
+	e.done = true
+	if err := w.applyFoldedRect(sheet, st, idx, e.r1, e.c1, e.r2, e.c2); err != nil {
+		return err
+	}
+	for j := 0; j < idx; j++ {
+		p := &st.styleLog[j]
+		if p.containsRect(e.r1, e.c1, e.r2, e.c2) {
+			continue // already part of e's fold
+		}
+		r1, c1, r2, c2, ok := intersectRects(p, e)
+		if !ok {
+			continue
+		}
+		if err := w.applyFoldedRect(sheet, st, idx, r1, c1, r2, c2); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// intersectRects returns the overlap of two entries (r2 == 0 = unbounded rows).
+func intersectRects(a, b *styleEntry) (r1, c1, r2, c2 int, ok bool) {
+	c1 = max(a.c1, b.c1)
+	c2 = min(a.c2, b.c2)
+	if c1 > c2 {
+		return 0, 0, 0, 0, false
+	}
+	r1 = max(a.r1, b.r1)
+	switch {
+	case a.r2 == 0 && b.r2 == 0:
+		r2 = 0
+	case a.r2 == 0:
+		r2 = b.r2
+	case b.r2 == 0:
+		r2 = a.r2
+	default:
+		r2 = min(a.r2, b.r2)
+	}
+	if r2 != 0 && r1 > r2 {
+		return 0, 0, 0, 0, false
+	}
+	return r1, c1, r2, c2, true
+}
+
+// applyFoldedRect sets the rect's style to the merge of every entry up to
+// upTo (inclusive) that contains the rect.
+func (w *Workbook) applyFoldedRect(sheet string, st *sheetState, upTo, r1, c1, r2, c2 int) error {
 	merged := compat.StyleSpec{}
-	for j := 0; j <= idx; j++ {
-		if p := &st.styleLog[j]; j == idx || p.containsRect(e.r1, e.c1, e.r2, e.c2) {
+	for j := 0; j <= upTo; j++ {
+		if p := &st.styleLog[j]; p.containsRect(r1, c1, r2, c2) {
 			merged = compat.MergeSpec(merged, p.spec)
 		}
 	}
@@ -557,17 +607,16 @@ func (w *Workbook) applyStyleEntry(sheet string, st *sheetState, idx int) error 
 	if err != nil {
 		return err
 	}
-	e.done = true
-	if e.r2 == 0 {
-		c1, _ := excelize.ColumnNumberToName(e.c1)
-		c2, _ := excelize.ColumnNumberToName(e.c2)
-		return w.f.SetColStyle(sheet, c1+":"+c2, id)
+	if r2 == 0 {
+		cn1, _ := excelize.ColumnNumberToName(c1)
+		cn2, _ := excelize.ColumnNumberToName(c2)
+		return w.f.SetColStyle(sheet, cn1+":"+cn2, id)
 	}
-	tl, err := excelize.CoordinatesToCellName(e.c1, e.r1)
+	tl, err := excelize.CoordinatesToCellName(c1, r1)
 	if err != nil {
 		return err
 	}
-	br, err := excelize.CoordinatesToCellName(e.c2, e.r2)
+	br, err := excelize.CoordinatesToCellName(c2, r2)
 	if err != nil {
 		return err
 	}
