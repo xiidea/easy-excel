@@ -40,7 +40,8 @@ class NumberFormat
     public function setFormatCode(string $formatCode): static
     {
         $this->formatCode = $formatCode;
-        $this->worksheet->flush();
+        // no flush: the Go style log is coordinate-based and keeps formats
+        // queued before their rows stream-compatible
         Native::setNumberFormat(
             $this->worksheet->getParent()->getHandle(),
             $this->worksheet->getTitle(),

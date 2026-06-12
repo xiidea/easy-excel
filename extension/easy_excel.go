@@ -330,6 +330,96 @@ func easy_excel_merge_cells(handle int64, sheet *C.zend_string, ref *C.zend_stri
 	return errOnly(wb.MergeCells(goStr(sheet), goStr(ref)))
 }
 
+//export_php:function easy_excel_apply_style(int $handle, string $sheet, string $range, string $styleJson): ?string
+func easy_excel_apply_style(handle int64, sheet *C.zend_string, ref *C.zend_string, styleJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.ApplyStyle(goStr(sheet), goStr(ref), goStr(styleJson)))
+}
+
+//export_php:function easy_excel_set_col_width(int $handle, string $sheet, int $startCol, int $endCol, float $width): ?string
+func easy_excel_set_col_width(handle int64, sheet *C.zend_string, startCol int64, endCol int64, width float64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetColWidth(goStr(sheet), int(startCol), int(endCol), width))
+}
+
+//export_php:function easy_excel_set_col_autosize(int $handle, string $sheet, int $startCol, int $endCol): ?string
+func easy_excel_set_col_autosize(handle int64, sheet *C.zend_string, startCol int64, endCol int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetColAutoSize(goStr(sheet), int(startCol), int(endCol)))
+}
+
+//export_php:function easy_excel_set_row_height(int $handle, string $sheet, int $row, float $height): ?string
+func easy_excel_set_row_height(handle int64, sheet *C.zend_string, row int64, height float64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetRowHeight(goStr(sheet), int(row), height))
+}
+
+//export_php:function easy_excel_freeze_panes(int $handle, string $sheet, string $topLeftCell): ?string
+func easy_excel_freeze_panes(handle int64, sheet *C.zend_string, topLeftCell *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.FreezePanes(goStr(sheet), goStr(topLeftCell)))
+}
+
+//export_php:function easy_excel_auto_filter(int $handle, string $sheet, string $range): ?string
+func easy_excel_auto_filter(handle int64, sheet *C.zend_string, ref *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.AutoFilter(goStr(sheet), goStr(ref)))
+}
+
+//export_php:function easy_excel_set_hyperlink(int $handle, string $sheet, string $cell, string $url, string $tooltip): ?string
+func easy_excel_set_hyperlink(handle int64, sheet *C.zend_string, cell *C.zend_string, url *C.zend_string, tooltip *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetHyperlink(goStr(sheet), goStr(cell), goStr(url), goStr(tooltip)))
+}
+
+//export_php:function easy_excel_set_comment(int $handle, string $sheet, string $cell, string $author, string $text): ?string
+func easy_excel_set_comment(handle int64, sheet *C.zend_string, cell *C.zend_string, author *C.zend_string, text *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetComment(goStr(sheet), goStr(cell), goStr(author), goStr(text)))
+}
+
+//export_php:function easy_excel_defined_name(int $handle, string $name, string $refersTo, string $scopeSheet): ?string
+func easy_excel_defined_name(handle int64, name *C.zend_string, refersTo *C.zend_string, scopeSheet *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetDefinedName(goStr(name), goStr(refersTo), goStr(scopeSheet)))
+}
+
+//export_php:function easy_excel_page_setup(int $handle, string $sheet, string $orientation, int $paperSize, int $fitToWidth, int $fitToHeight): ?string
+func easy_excel_page_setup(handle int64, sheet *C.zend_string, orientation *C.zend_string, paperSize int64, fitToWidth int64, fitToHeight int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetPageSetup(goStr(sheet), goStr(orientation), int(paperSize), int(fitToWidth), int(fitToHeight)))
+}
+
 // --- save -------------------------------------------------------------------------
 
 //export_php:function easy_excel_save_xlsx(int $handle, string $path): ?string

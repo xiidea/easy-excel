@@ -144,6 +144,57 @@ final class Native
         self::check(\easy_excel_merge_cells($handle, $sheet, $range));
     }
 
+    /** @param array<string, array<string, mixed>> $spec PhpSpreadsheet applyFromArray shape */
+    public static function applyStyle(int $handle, string $sheet, string $range, array $spec): void
+    {
+        self::check(\easy_excel_apply_style($handle, $sheet, $range, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    public static function setColWidth(int $handle, string $sheet, int $startCol, int $endCol, float $width): void
+    {
+        self::check(\easy_excel_set_col_width($handle, $sheet, $startCol, $endCol, $width));
+    }
+
+    public static function setColAutoSize(int $handle, string $sheet, int $startCol, int $endCol): void
+    {
+        self::check(\easy_excel_set_col_autosize($handle, $sheet, $startCol, $endCol));
+    }
+
+    public static function setRowHeight(int $handle, string $sheet, int $row, float $height): void
+    {
+        self::check(\easy_excel_set_row_height($handle, $sheet, $row, $height));
+    }
+
+    public static function freezePanes(int $handle, string $sheet, string $topLeftCell): void
+    {
+        self::check(\easy_excel_freeze_panes($handle, $sheet, $topLeftCell));
+    }
+
+    public static function autoFilter(int $handle, string $sheet, string $range): void
+    {
+        self::check(\easy_excel_auto_filter($handle, $sheet, $range));
+    }
+
+    public static function setHyperlink(int $handle, string $sheet, string $cell, string $url, string $tooltip): void
+    {
+        self::check(\easy_excel_set_hyperlink($handle, $sheet, $cell, $url, $tooltip));
+    }
+
+    public static function setComment(int $handle, string $sheet, string $cell, string $author, string $text): void
+    {
+        self::check(\easy_excel_set_comment($handle, $sheet, $cell, $author, $text));
+    }
+
+    public static function definedName(int $handle, string $name, string $refersTo, string $scopeSheet): void
+    {
+        self::check(\easy_excel_defined_name($handle, $name, $refersTo, $scopeSheet));
+    }
+
+    public static function pageSetup(int $handle, string $sheet, string $orientation, int $paperSize, int $fitToWidth, int $fitToHeight): void
+    {
+        self::check(\easy_excel_page_setup($handle, $sheet, $orientation, $paperSize, $fitToWidth, $fitToHeight));
+    }
+
     public static function saveXlsx(int $handle, string $path): void
     {
         self::check(\easy_excel_save_xlsx($handle, $path));

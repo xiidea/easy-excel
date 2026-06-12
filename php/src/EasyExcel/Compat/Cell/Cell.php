@@ -61,6 +61,23 @@ class Cell
         return $this->worksheet;
     }
 
+    public function getHyperlink(): Hyperlink
+    {
+        return (new Hyperlink())->bind($this->worksheet, $this->coordinate);
+    }
+
+    public function setHyperlink(?Hyperlink $hyperlink): static
+    {
+        $this->worksheet->setHyperlink($this->coordinate, $hyperlink);
+
+        return $this;
+    }
+
+    public function getStyle(): \EasyExcel\Compat\Style\Style
+    {
+        return $this->worksheet->getStyle($this->coordinate);
+    }
+
     public function getDataType(): string
     {
         $v = $this->getValue();

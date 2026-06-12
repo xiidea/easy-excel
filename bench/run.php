@@ -16,6 +16,10 @@ declare(strict_types=1);
  * `write` produces rows x 10 mixed columns (string/int/float/date string).
  * `read` consumes the file produced by a prior `write` of the same lib
  * (or bench.xlsx if present), counting cells.
+ * `write-styled` is `write` plus a styled header, two column number formats,
+ * column widths, freeze pane and auto-filter — the typical report
+ * (phpspreadsheet and easy-excel only; both run the identical code through
+ * the PhpSpreadsheet API surface).
  */
 
 require __DIR__ . '/vendor/autoload.php';
@@ -52,6 +56,46 @@ function benchRows(int $count): iterable
             $i % 5,
         ];
     }
+}
+
+/**
+ * Identical styled-report workload across PhpSpreadsheet-compatible APIs;
+ * $spreadsheet/$writer come from either library.
+ */
+function benchStyledWrite(object $spreadsheet, string $writerClass, string $file, int $rows): void
+{
+    $ws = $spreadsheet->getActiveSheet();
+    $last = $rows + 1;
+    $ws->getStyle('A1:J1')->applyFromArray([
+        'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+        'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => '4472C4']],
+        'borders' => ['allBorders' => ['borderStyle' => 'thin']],
+        'alignment' => ['horizontal' => 'center'],
+    ]);
+    $ws->getStyle("D2:D$last")->getNumberFormat()->setFormatCode('#,##0.00');
+    $ws->getStyle("H2:H$last")->getNumberFormat()->setFormatCode('0.0000');
+    $ws->getColumnDimension('A')->setWidth(24);
+    $ws->getColumnDimension('I')->setWidth(32);
+    $ws->getRowDimension(1)->setRowHeight(22);
+    $ws->freezePane('A2');
+
+    $ws->fromArray([['Customer', 'SKU', 'Qty', 'Price', 'Status', 'Date', 'Total', 'Ratio', 'Note', 'Bucket']]);
+    $chunk = [];
+    $at = 2;
+    foreach (benchRows($rows) as $row) {
+        $chunk[] = $row;
+        if (\count($chunk) === 2048) {
+            $ws->fromArray($chunk, null, 'A' . $at, true);
+            $at += 2048;
+            $chunk = [];
+        }
+    }
+    if ($chunk) {
+        $ws->fromArray($chunk, null, 'A' . $at, true);
+    }
+    $ws->setAutoFilter("A1:J$last");
+    (new $writerClass($spreadsheet))->save($file);
+    $spreadsheet->disconnectWorksheets();
 }
 
 \gc_collect_cycles();

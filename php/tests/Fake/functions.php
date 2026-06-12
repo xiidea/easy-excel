@@ -264,6 +264,80 @@ function easy_excel_merge_cells(int $handle, string $sheet, string $range): ?str
     return null;
 }
 
+function easy_excel_apply_style(int $handle, string $sheet, string $range, string $styleJson): ?string
+{
+    $spec = \json_decode($styleJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: style spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['apply_style', [$handle, $sheet, $range, $spec]];
+
+    return null;
+}
+
+function easy_excel_set_col_width(int $handle, string $sheet, int $startCol, int $endCol, float $width): ?string
+{
+    EasyExcelFake::$log[] = ['set_col_width', [$handle, $sheet, $startCol, $endCol, $width]];
+
+    return null;
+}
+
+function easy_excel_set_col_autosize(int $handle, string $sheet, int $startCol, int $endCol): ?string
+{
+    EasyExcelFake::$log[] = ['set_col_autosize', [$handle, $sheet, $startCol, $endCol]];
+
+    return null;
+}
+
+function easy_excel_set_row_height(int $handle, string $sheet, int $row, float $height): ?string
+{
+    EasyExcelFake::$log[] = ['set_row_height', [$handle, $sheet, $row, $height]];
+
+    return null;
+}
+
+function easy_excel_freeze_panes(int $handle, string $sheet, string $topLeftCell): ?string
+{
+    EasyExcelFake::$log[] = ['freeze_panes', [$handle, $sheet, $topLeftCell]];
+
+    return null;
+}
+
+function easy_excel_auto_filter(int $handle, string $sheet, string $range): ?string
+{
+    EasyExcelFake::$log[] = ['auto_filter', [$handle, $sheet, $range]];
+
+    return null;
+}
+
+function easy_excel_set_hyperlink(int $handle, string $sheet, string $cell, string $url, string $tooltip): ?string
+{
+    EasyExcelFake::$log[] = ['set_hyperlink', [$handle, $sheet, $cell, $url, $tooltip]];
+
+    return null;
+}
+
+function easy_excel_set_comment(int $handle, string $sheet, string $cell, string $author, string $text): ?string
+{
+    EasyExcelFake::$log[] = ['set_comment', [$handle, $sheet, $cell, $author, $text]];
+
+    return null;
+}
+
+function easy_excel_defined_name(int $handle, string $name, string $refersTo, string $scopeSheet): ?string
+{
+    EasyExcelFake::$log[] = ['defined_name', [$handle, $name, $refersTo, $scopeSheet]];
+
+    return null;
+}
+
+function easy_excel_page_setup(int $handle, string $sheet, string $orientation, int $paperSize, int $fitToWidth, int $fitToHeight): ?string
+{
+    EasyExcelFake::$log[] = ['page_setup', [$handle, $sheet, $orientation, $paperSize, $fitToWidth, $fitToHeight]];
+
+    return null;
+}
+
 function easy_excel_save_xlsx(int $handle, string $path): ?string
 {
     EasyExcelFake::$log[] = ['save_xlsx', [$handle, $path]];

@@ -57,6 +57,14 @@ type sheetState struct {
 	iter      *excelize.Rows // cached forward read iterator
 	iterNext  int            // 1-based row the iterator yields next
 	iterRaw   bool
+
+	// Phase-2 structure logs (see structure.go for the lifecycle)
+	styleLog   []styleEntry
+	rowHeights map[int]*heightEntry
+	preWidths  []colWidthOp
+	prePanes   *excelize.Panes
+	preMerges  [][2]string
+	pending    []pendingOp
 }
 
 // Workbook wraps one excelize file plus per-sheet streaming state.
@@ -349,8 +357,12 @@ func (w *Workbook) streamRows(sheet string, st *sheetState, startRow, startCol i
 		if err != nil {
 			return err
 		}
+		if err := applyPreOps(sw, st); err != nil {
+			return err
+		}
 		st.sw = sw
 	}
+	styler := w.newInlineStyler(st)
 	for i, row := range rows {
 		rowNum := startRow + i
 		if rowNum <= st.lastRow {
@@ -358,28 +370,58 @@ func (w *Workbook) streamRows(sheet string, st *sheetState, startRow, startCol i
 		}
 		values := make([]interface{}, len(row))
 		for j, c := range row {
+			styleID := 0
+			if styler != nil {
+				id, err := styler.styleID(rowNum, startCol+j)
+				if err != nil {
+					return err
+				}
+				styleID = id
+			}
 			switch c.Kind {
 			case compat.Skip:
-				values[j] = nil
+				if styleID != 0 {
+					values[j] = excelize.Cell{StyleID: styleID}
+				} else {
+					values[j] = nil
+				}
 			case compat.Str:
-				values[j] = c.Str
+				if styleID != 0 {
+					values[j] = excelize.Cell{StyleID: styleID, Value: c.Str}
+				} else {
+					values[j] = c.Str
+				}
 			case compat.Num:
-				values[j] = c.Num
+				if styleID != 0 {
+					values[j] = excelize.Cell{StyleID: styleID, Value: c.Num}
+				} else {
+					values[j] = c.Num
+				}
 			case compat.Boolean:
-				values[j] = c.Bool
+				if styleID != 0 {
+					values[j] = excelize.Cell{StyleID: styleID, Value: c.Bool}
+				} else {
+					values[j] = c.Bool
+				}
 			case compat.Formula:
-				values[j] = excelize.Cell{Formula: c.Str}
+				values[j] = excelize.Cell{StyleID: styleID, Formula: c.Str}
 			}
 		}
 		anchor, err := excelize.CoordinatesToCellName(startCol, rowNum)
 		if err != nil {
 			return err
 		}
-		if err := st.sw.SetRow(anchor, values); err != nil {
+		var opts []excelize.RowOpts
+		if h, ok := st.rowHeights[rowNum]; ok && !h.done {
+			opts = append(opts, excelize.RowOpts{Height: h.height})
+			h.done = true
+		}
+		if err := st.sw.SetRow(anchor, values, opts...); err != nil {
 			return err
 		}
 		st.lastRow = rowNum
 	}
+	st.markStreamed()
 	return nil
 }
 
@@ -465,7 +507,7 @@ func (w *Workbook) ensureRandom(sheet string, st *sheetState) error {
 		for _, s := range w.sheets {
 			s.eligible = false
 		}
-		return nil
+		return w.replayAll()
 	}
 	if err := w.gate.ReserveMemory(w.estBytes); err != nil {
 		return err
@@ -498,7 +540,18 @@ func (w *Workbook) ensureRandom(sheet string, st *sheetState) error {
 	w.f = f
 	w.styles.reset()
 	w.degraded = true
-	return nil
+	return w.replayAll()
+}
+
+// ensureRandomAll leaves streaming mode for every sheet and replays queued
+// structure work; used by save when pending ops cannot be streamed.
+func (w *Workbook) ensureRandomAll() error {
+	for name, st := range w.sheets {
+		if !st.random() {
+			return w.ensureRandom(name, st)
+		}
+	}
+	return w.replayAll()
 }
 
 // Degraded reports whether the workbook left streaming mode (test/metrics hook).
@@ -671,10 +724,10 @@ func (w *Workbook) scanDims(sheet string, st *sheetState) error {
 	return rows.Error()
 }
 
-// --- styling (Phase-1 subset) -----------------------------------------------
+// --- styling / structure ------------------------------------------------------
 
-// SetNumberFormat applies a number-format code to a cell range. Streamed
-// sheets degrade first; full streaming-safe styles are Phase 2.
+// SetNumberFormat applies a number-format code to a cell range through the
+// style log, so it streams like any other style (structure.go).
 func (w *Workbook) SetNumberFormat(sheet, ref, code string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -685,21 +738,12 @@ func (w *Workbook) SetNumberFormat(sheet, ref, code string) error {
 	if err != nil {
 		return err
 	}
-	if err := w.ensureRandom(sheet, st); err != nil {
-		return err
-	}
-	id, err := w.styles.numFmtID(w.f, code)
-	if err != nil {
-		return err
-	}
-	tl, br, err := splitRange(ref)
-	if err != nil {
-		return err
-	}
-	return w.f.SetCellStyle(sheet, tl, br, id)
+	spec := compat.StyleSpec{"numberFormat": map[string]any{"formatCode": code}}
+	return w.applySpecLocked(sheet, st, ref, spec)
 }
 
-// MergeCells merges a range like "A1:C3".
+// MergeCells merges a range like "A1:C3"; streaming sheets use the
+// StreamWriter's native merge support instead of degrading.
 func (w *Workbook) MergeCells(sheet, ref string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -710,12 +754,16 @@ func (w *Workbook) MergeCells(sheet, ref string) error {
 	if err != nil {
 		return err
 	}
-	if err := w.ensureRandom(sheet, st); err != nil {
-		return err
-	}
 	tl, br, err := splitRange(ref)
 	if err != nil {
 		return err
+	}
+	if st.sw != nil {
+		return st.sw.MergeCell(tl, br)
+	}
+	if !st.random() {
+		st.preMerges = append(st.preMerges, [2]string{tl, br})
+		return nil
 	}
 	return w.f.MergeCell(sheet, tl, br)
 }
@@ -750,7 +798,7 @@ func (w *Workbook) SaveXlsx(path string) error {
 		return err
 	}
 	defer release()
-	if err := w.flushStreams(); err != nil {
+	if err := w.settleForSave(); err != nil {
 		return err
 	}
 	return w.f.SaveAs(abs)
@@ -768,10 +816,22 @@ func (w *Workbook) WriteXlsxTo(out io.Writer) error {
 		return err
 	}
 	defer release()
-	if err := w.flushStreams(); err != nil {
+	if err := w.settleForSave(); err != nil {
 		return err
 	}
 	return w.f.Write(out)
+}
+
+// settleForSave brings the workbook into a saveable state: queued structure
+// work that excelize cannot stream forces the documented one-time degrade,
+// otherwise the stream writers are just flushed.
+func (w *Workbook) settleForSave() error {
+	if w.hasAnyPendingWork() {
+		if err := w.ensureRandomAll(); err != nil {
+			return err
+		}
+	}
+	return w.flushStreams()
 }
 
 func (w *Workbook) flushStreams() error {

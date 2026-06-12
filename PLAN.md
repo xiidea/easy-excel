@@ -357,6 +357,29 @@ Each phase ends with **re-measurement against the Phase-0 baseline** and a writt
 what/why/impact note per significant change (response time, throughput, memory, infra cost)
 — per the iterative strategy: analyse → plan → implement highest-impact → re-measure → continue.
 
+> **Phase-2 outcome (2026-06-12):** full style graph + structure shipped via a
+> per-sheet **op-log** in Go: styles/heights queued before their rows stream
+> inline through the StreamWriter (zero degrade for the style-header-then-bulk
+> pattern); widths/panes/merges use the StreamWriter's native support; ops
+> excelize cannot stream (auto-filter, auto-size, hyperlinks, comments, page
+> setup, late styles) defer to save and cost at most one degrade. Divergences
+> are listed in COMPAT.md §9–15; the styled-report bench lane is
+> `run.php <lib> write-styled`.
+>
+> Measured (PHP 8.5, Docker/Apple Silicon): styled 100k report — PhpSpreadsheet
+> 17.27s / 670MB vs easy-excel **4.30s / 4MB** (4.0×, includes the auto-filter
+> degrade). Styled 1M — **12.6s** fully streamed without auto-filter; 121s with
+> it (the degrade materializes 1M rows in excelize's random model). Phase-3
+> candidate: inject `<autoFilter>` into the streamed sheet XML at save to
+> remove that cliff. Inline styling overhead on the hot path: 1M×10 cells with
+> a full-column format = 12.6s vs 7.8s unstyled (per-cell style resolution;
+> optimizable by pre-filtering entries per batch if profiling justifies).
+> **klauspost/compress was deferred to Phase 3**:
+> excelize v2.10 exposes no zip-writer hook, so it would mean re-compressing
+> the container at save time — and the measured 1M-row write (7.8s, 4.6×
+> OpenSpout) shows DEFLATE is not the current bottleneck. Re-evaluate with
+> profiling per §3.
+
 ---
 
 ## 14. Open questions for approval

@@ -7,6 +7,8 @@ namespace EasyExcel\Compat\Worksheet;
 use EasyExcel\Compat\Cell\Cell;
 use EasyExcel\Compat\Cell\Coordinate;
 use EasyExcel\Compat\Cell\DataType;
+use EasyExcel\Compat\Cell\Hyperlink;
+use EasyExcel\Compat\Comment;
 use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\Date;
 use EasyExcel\Compat\Spreadsheet;
@@ -31,6 +33,8 @@ class Worksheet
     private array $buffer = [];
 
     private int $bufferedRows = 0;
+
+    private ?PageSetup $pageSetup = null;
 
     public function __construct(private Spreadsheet $parent, private string $title)
     {
@@ -261,7 +265,8 @@ class Worksheet
                 $range
             ));
         }
-        $this->flush();
+        // no flush: the Go op-log applies merges by coordinates regardless of
+        // when the rows arrive, and flushing here would end streaming early
         Native::mergeCells($this->parent->getHandle(), $this->title, $range);
 
         return $this;
@@ -274,6 +279,83 @@ class Worksheet
         }
 
         return new Style($this, $cellCoordinate);
+    }
+
+    public function getColumnDimension(string $column): ColumnDimension
+    {
+        return new ColumnDimension($this, $column);
+    }
+
+    public function getColumnDimensionByColumn(int $columnIndex): ColumnDimension
+    {
+        return new ColumnDimension($this, Coordinate::stringFromColumnIndex($columnIndex));
+    }
+
+    public function getRowDimension(int $row): RowDimension
+    {
+        return new RowDimension($this, $row);
+    }
+
+    public function setAutoFilter(string|array $range): static
+    {
+        if (\is_array($range)) {
+            $range = \implode(':', \array_map(
+                static fn (array $c): string => Coordinate::stringFromColumnIndex($c[0]) . $c[1],
+                $range
+            ));
+        }
+        Native::autoFilter($this->parent->getHandle(), $this->title, $range);
+
+        return $this;
+    }
+
+    public function freezePane(?string $coordinate): static
+    {
+        Native::freezePanes($this->parent->getHandle(), $this->title, $coordinate ?? '');
+
+        return $this;
+    }
+
+    public function freezePaneByColumnAndRow(int $columnIndex, int $row): static
+    {
+        return $this->freezePane(Coordinate::stringFromColumnIndex($columnIndex) . $row);
+    }
+
+    public function unfreezePane(): static
+    {
+        return $this->freezePane(null);
+    }
+
+    public function getComment(string|array $cellCoordinate): Comment
+    {
+        if (\is_array($cellCoordinate)) {
+            $cellCoordinate = Coordinate::stringFromColumnIndex($cellCoordinate[0]) . $cellCoordinate[1];
+        }
+
+        return new Comment($this, $cellCoordinate);
+    }
+
+    public function getCommentByColumnAndRow(int $columnIndex, int $row): Comment
+    {
+        return $this->getComment(Coordinate::stringFromColumnIndex($columnIndex) . $row);
+    }
+
+    public function setHyperlink(string $cellCoordinate, ?Hyperlink $hyperlink): static
+    {
+        Native::setHyperlink(
+            $this->parent->getHandle(),
+            $this->title,
+            $cellCoordinate,
+            $hyperlink?->getUrl() ?? '',
+            $hyperlink?->getTooltip() ?? '',
+        );
+
+        return $this;
+    }
+
+    public function getPageSetup(): PageSetup
+    {
+        return $this->pageSetup ??= new PageSetup($this);
     }
 
     // --- internals -----------------------------------------------------------------

@@ -19,8 +19,20 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Writer\Csv | `set/getDelimiter`, `setEnclosure` (only `"`), `set/getLineEnding`, `set/getUseBOM`, `set/getSheetIndex`, `save` | plus `setSanitizeFormulas()` (easy-excel extra, opt-in OWASP guard) |
 | Reader\Xlsx | `load`, `setReadDataOnly`, `canRead` | |
 | Reader\Csv | `load`, `setDelimiter`, `setEnclosure`, `setSheetIndex`, `canRead` | streams in 1k-row chunks |
-| Style | `getStyle()->getNumberFormat()->set/getFormatCode`, `applyFromArray(['numberFormat' => …])` | number formats only in Phase 1 |
 | Value binding | DefaultValueBinder semantics: numeric strings → numbers (leading-zero strings preserved), `=…` → formula, `DateTimeInterface` → Excel serial | |
+
+## Supported (Phase 2 — formatting & structure)
+
+| Area | API | Notes |
+|---|---|---|
+| Style | `getStyle(range)->applyFromArray`, `getFont` (bold/italic/size/name/underline/strikethrough/color/super/subscript), `getFill` (pattern fills + start/end color), `getBorders` (top/bottom/left/right/allBorders/outline, style + color), `getAlignment` (horizontal/vertical/wrapText/shrinkToFit/textRotation/indent), `getProtection` (locked/hidden), `getNumberFormat` | partial styles layer in application order like PhpSpreadsheet's supervisor; styles applied **before** their rows are written ride the StreamWriter at zero cost |
+| Style helpers | `Color` (ARGB/RGB + constants), all `Border::BORDER_*`, `Fill::FILL_*`, `Alignment::HORIZONTAL_*/VERTICAL_*`, `Protection::PROTECTION_*`, `NumberFormat::FORMAT_*` constants | |
+| Dimensions | `getColumnDimension(+ByColumn)->setWidth/setAutoSize`, `getRowDimension->setRowHeight` | auto-size is approximated at save time (divergence 10) |
+| Structure | `mergeCells`, `setAutoFilter`, `freezePane(+ByColumnAndRow)`, `unfreezePane` | merges/widths/panes set before streaming use the StreamWriter's native support |
+| Hyperlinks | `Cell::getHyperlink()->setUrl/setTooltip`, `Worksheet::setHyperlink` | `sheet://` URLs become internal links |
+| Comments | `getComment(+ByColumnAndRow)`, `Comment::setAuthor`, `getText()->createText/createTextRun/getPlainText` | plain text only; run formatting throws |
+| Defined names | `Spreadsheet::addNamedRange/addDefinedName`, `NamedRange` | |
+| Page setup | `getPageSetup()->setOrientation/setPaperSize/setFitToWidth/setFitToHeight/setFitToPage` | applied at save |
 
 ## Documented divergences
 
@@ -35,9 +47,10 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 3. **Formula engine coverage** — `getCalculatedValue()` delegates to excelize;
    its function set (~535) differs from PhpSpreadsheet's. A per-function table
    will be published with Phase 3.
-4. **Streaming degrade** — out-of-order writes, reads, or number formats on a
-   sheet with already-streamed rows trigger a one-time serialize-and-reopen
-   of the workbook (correct, but O(file size)). Sequential writers never hit it.
+4. **Streaming degrade** — out-of-order writes or reads on a sheet with
+   already-streamed rows trigger a one-time serialize-and-reopen of the
+   workbook (correct, but O(file size)). Sequential writers never hit it;
+   styling no longer triggers it immediately (see divergence 9).
 5. **CSV enclosure** — only `"` is supported; `setEnclosure` with anything
    else throws.
 6. **`createSheet($index)`** — only appending (index = count or null);
@@ -47,19 +60,38 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 8. **Number-format rendering** — formatted values are rendered by excelize;
    rare locale-specific format codes may render differently from
    PhpSpreadsheet. Differences found by the test suite get fixed or listed here.
+9. **Style application order vs. streaming** — styles, number formats, widths,
+   panes and merges applied *before* their rows are written stream at full
+   speed. Styling rows that were already written queues the work and triggers
+   the one-time degrade **at save** (not immediately). For big exports, style
+   headers/columns first, then bulk-write.
+10. **Auto-size width** — PhpSpreadsheet measures rendered text with font
+    metrics; easy-excel approximates with `max character count + 2`,
+    applied at save. Visually close, not byte-identical.
+11. **Auto-filter, hyperlinks, comments, auto-size, page setup** — excelize
+    cannot stream these, so they are applied at save (degrading once if the
+    sheet streamed). The data path itself stays streaming.
+12. **Range styles assume uniform ranges** — `getStyle('A1:C10')` applies one
+    merged style to the whole range. Earlier styles fully containing the
+    range are layered in (like PhpSpreadsheet); partially-overlapping earlier
+    styles are not re-read per cell.
+13. **Full-column styles** (`getStyle('C')`) on streamed sheets style every
+    written cell; cells never written in that column stay default (the column
+    style is also recorded for files saved without streaming).
+14. **Style read-back** — `getFont()->getBold()` etc. return what was set on
+    that PHP style object, not the stylesheet state of a loaded file.
+15. **Comment rich text** — comments are plain text; `Run::getFont()` throws.
 
 ## Not yet supported (throws a clear exception)
 
-- Styles beyond number formats: Font, Fill, Borders, Alignment, Protection (Phase 2)
-- Auto-filter, freeze panes, column widths/row heights, hyperlinks, comments,
-  defined names, page setup (Phase 2)
+- Gradient fills, diagonal/vertical/horizontal borders
 - Charts, data validation, conditional formatting, images/drawings,
   protection/encryption (Phase 3)
 - Readers/Writers: Ods, Xls, Html, Pdf, Slk, Gnumeric — not planned for the
   native engine; install the real `phpoffice/phpspreadsheet` alongside (the
   alias bootstrap then defers to it) or convert externally
 - Custom value binders (`Cell::setValueBinder`), read filters with PHP
-  callbacks — Phase 2 via declarative equivalents (PHP callbacks across the
+  callbacks — planned via declarative equivalents (PHP callbacks across the
   CGO boundary are the documented slow path)
-- `Worksheet::getRowIterator()/getColumnIterator()` (Phase 2; `toArray`
-  chunked reads cover most uses)
+- `Worksheet::getRowIterator()/getColumnIterator()` (`toArray` chunked reads
+  cover most uses)

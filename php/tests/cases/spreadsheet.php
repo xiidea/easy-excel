@@ -148,10 +148,12 @@ return [
         T::same(['A1', '0.00%'], [\end($calls)[1][2], \end($calls)[1][3]]);
     },
 
-    'style: unsupported components fail loudly' => function (): void {
+    'style: phase-2 components route through apply_style' => function (): void {
+        EasyExcelFake::reset();
         $s = new Spreadsheet();
         $style = $s->getActiveSheet()->getStyle('A1');
-        T::throws(Exception::class, static fn () => $style->applyFromArray(['font' => ['bold' => true]]));
-        T::throws(Exception::class, static fn () => $style->getFont());
+        $style->applyFromArray(['font' => ['bold' => true]]);
+        $style->getFont()->setItalic(true);
+        T::same(2, \count(EasyExcelFake::calls('apply_style')));
     },
 ];

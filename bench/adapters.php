@@ -30,6 +30,10 @@ return [
             (new \EasyExcel\Compat\Writer\Xlsx($s))->save($file);
             $s->disconnectWorksheets();
         },
+        'write-styled' => function (string $file, int $rows): void {
+            \EasyExcel\Native::assertAvailable();
+            benchStyledWrite(new \EasyExcel\Compat\Spreadsheet(), \EasyExcel\Compat\Writer\Xlsx::class, $file, $rows);
+        },
         'read' => function (string $file): int {
             \EasyExcel\Native::assertAvailable();
             $s = (new \EasyExcel\Compat\Reader\Xlsx())->load($file);
@@ -53,6 +57,9 @@ return [
             }
             (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($s))->save($file);
             $s->disconnectWorksheets();
+        },
+        'write-styled' => function (string $file, int $rows): void {
+            benchStyledWrite(new \PhpOffice\PhpSpreadsheet\Spreadsheet(), \PhpOffice\PhpSpreadsheet\Writer\Xlsx::class, $file, $rows);
         },
         'read' => function (string $file): int {
             $reader = new \PhpOffice\PhpSpreadsheet\Reader\Xlsx();

@@ -150,6 +150,23 @@ class Spreadsheet
         \array_splice($this->worksheets, $sheetIndex, 1);
     }
 
+    public function addNamedRange(NamedRange $namedRange): bool
+    {
+        Native::definedName(
+            $this->getHandle(),
+            $namedRange->getName(),
+            $namedRange->getRefersTo(),
+            $namedRange->getLocalOnly() ? ($namedRange->getWorksheet()?->getTitle() ?? '') : '',
+        );
+
+        return true;
+    }
+
+    public function addDefinedName(NamedRange $definedName): bool
+    {
+        return $this->addNamedRange($definedName);
+    }
+
     /** @internal flush every sheet's write-behind buffer */
     public function flushAll(): void
     {

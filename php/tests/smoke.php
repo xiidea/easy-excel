@@ -79,6 +79,52 @@ check($sum >= 40000, "toArray chunked read ($sum cells)");
 $r->disconnectWorksheets();
 @\unlink($file);
 
+// --- phase 2: styles & structure end-to-end --------------------------------------
+$s3 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws3 = $s3->getActiveSheet();
+
+// the report pattern: style first, then bulk-write — must stay streaming
+$ws3->getStyle('A1:C1')->applyFromArray([
+    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+    'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => '4472C4']],
+    'borders' => ['allBorders' => ['borderStyle' => 'thin']],
+    'alignment' => ['horizontal' => 'center'],
+]);
+$ws3->getStyle('B2:B5000')->getNumberFormat()->setFormatCode('#,##0.00');
+$ws3->getColumnDimension('A')->setWidth(28);
+$ws3->getRowDimension(1)->setRowHeight(24);
+$ws3->freezePane('A2');
+$ws3->mergeCells('E1:F1');
+
+$data = [['Name', 'Amount', 'Status']];
+for ($i = 2; $i <= 5000; ++$i) {
+    $data[] = ["item-$i", $i * 1.5, 'ok'];
+}
+$ws3->fromArray($data);
+
+// save-time deferred ops (documented one-time degrade)
+$ws3->setAutoFilter('A1:C5000');
+$ws3->getCell('A2')->getHyperlink()->setUrl('https://example.com/item-2');
+$ws3->getComment('B2')->getText()->createTextRun('reviewed');
+$ws3->getColumnDimension('C')->setAutoSize(true);
+$ws3->getPageSetup()->setOrientation(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::ORIENTATION_LANDSCAPE);
+$s3->addNamedRange(new \PhpOffice\PhpSpreadsheet\NamedRange('amounts', $ws3, '$B$2:$B$5000'));
+
+$styled = \sys_get_temp_dir() . '/smoke-styled.xlsx';
+$t1 = \hrtime(true);
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s3, 'Xlsx')->save($styled);
+$ms = (int) ((\hrtime(true) - $t1) / 1e6);
+check(\is_file($styled) && \filesize($styled) > 5000, "styled report saved ({$ms}ms, " . \filesize($styled) . ' bytes)');
+$s3->disconnectWorksheets();
+
+$r3 = \PhpOffice\PhpSpreadsheet\IOFactory::load($styled);
+$rs3 = $r3->getActiveSheet();
+check($rs3->getCell('A1')->getValue() === 'Name', 'styled file header intact');
+check($rs3->getCell('B3')->getFormattedValue() === '4.50', 'streamed number format renders');
+check($rs3->getHighestRow() === 5000, 'styled file row count');
+$r3->disconnectWorksheets();
+@\unlink($styled);
+
 // --- csv + load control surface ------------------------------------------------
 $s2 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
 $s2->getActiveSheet()->fromArray([['a', '-x', 'b,c']]);
