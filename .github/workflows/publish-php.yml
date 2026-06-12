@@ -3,7 +3,7 @@ name: Publish PHP Package
 on:
   push:
     branches:
-      - main
+      - debug-php-release
     paths:
       - 'php/**'
       - '.github/workflows/publish-php.yml'
@@ -26,6 +26,16 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Verify token exists
+        run: |
+          if [ -z "$PUSH_TOKEN" ]; then
+            echo "PUSH_TOKEN is empty"
+            exit 1
+          fi
+          echo "PUSH_TOKEN is present"
+        env:
+          PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
 
       - name: Split php subtree
         run: |
