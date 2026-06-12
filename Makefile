@@ -33,7 +33,7 @@ vet:
 # easy_excel.go is excluded: gofmt mangles //export_php: directives
 # (underscore tool names are not recognized as directives).
 fmt:
-	cd extension && gofmt -w registry limits exio compat core
+	cd extension && gofmt -w registry limits exio compat core tools
 
 # Generates build/ (CGO wrappers, arginfo, stubs) from the bridge directives.
 # GEN_STUB_SCRIPT must point at php-src's build/gen_stub.php checkout.

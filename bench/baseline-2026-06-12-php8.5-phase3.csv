@@ -1,0 +1,6 @@
+lib,workload,rows,wall_seconds,peak_mem_bytes,file_bytes
+phpspreadsheet,write-styled,100000,26.792,670638080,6083117
+easy-excel,write-styled,100000,1.928,4194304,5961628
+easy-excel,write-styled,1000000,18.509,4194304,59246345
+easy-excel,write,100000,1.153,4194304,5905155
+easy-excel,write,1000000,11.871,4194304,58991281

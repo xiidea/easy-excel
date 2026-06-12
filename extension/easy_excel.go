@@ -279,13 +279,13 @@ func easy_excel_get_cell(handle int64, sheet *C.zend_string, cell *C.zend_string
 	return pair(v, err)
 }
 
-//export_php:function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw): array
-func easy_excel_read_rows(handle int64, sheet *C.zend_string, startRow int64, maxRows int64, raw bool) unsafe.Pointer {
+//export_php:function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw, bool $calc): array
+func easy_excel_read_rows(handle int64, sheet *C.zend_string, startRow int64, maxRows int64, raw bool, calc bool) unsafe.Pointer {
 	wb, err := workbook(handle)
 	if err != nil {
 		return pair(nil, err)
 	}
-	rows, more, err := wb.ReadRows(goStr(sheet), int(startRow), int(maxRows), raw)
+	rows, more, err := wb.ReadRows(goStr(sheet), int(startRow), int(maxRows), raw, calc)
 	if err != nil {
 		return pair(nil, err)
 	}
@@ -418,6 +418,51 @@ func easy_excel_page_setup(handle int64, sheet *C.zend_string, orientation *C.ze
 		return errOnly(err)
 	}
 	return errOnly(wb.SetPageSetup(goStr(sheet), goStr(orientation), int(paperSize), int(fitToWidth), int(fitToHeight)))
+}
+
+//export_php:function easy_excel_set_validation(int $handle, string $sheet, string $range, string $validationJson): ?string
+func easy_excel_set_validation(handle int64, sheet *C.zend_string, ref *C.zend_string, validationJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetDataValidation(goStr(sheet), goStr(ref), goStr(validationJson)))
+}
+
+//export_php:function easy_excel_set_conditional(int $handle, string $sheet, string $range, string $rulesJson): ?string
+func easy_excel_set_conditional(handle int64, sheet *C.zend_string, ref *C.zend_string, rulesJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetConditionalFormat(goStr(sheet), goStr(ref), goStr(rulesJson)))
+}
+
+//export_php:function easy_excel_add_image(int $handle, string $sheet, string $cell, string $imageJson): ?string
+func easy_excel_add_image(handle int64, sheet *C.zend_string, cell *C.zend_string, imageJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.AddImage(goStr(sheet), goStr(cell), goStr(imageJson)))
+}
+
+//export_php:function easy_excel_protect_sheet(int $handle, string $sheet, string $protectionJson): ?string
+func easy_excel_protect_sheet(handle int64, sheet *C.zend_string, protectionJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.ProtectSheet(goStr(sheet), goStr(protectionJson)))
+}
+
+//export_php:function easy_excel_add_chart(int $handle, string $sheet, string $cell, string $chartJson): ?string
+func easy_excel_add_chart(handle int64, sheet *C.zend_string, cell *C.zend_string, chartJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.AddChart(goStr(sheet), goStr(cell), goStr(chartJson)))
 }
 
 // --- save -------------------------------------------------------------------------

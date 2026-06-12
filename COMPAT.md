@@ -34,6 +34,18 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Defined names | `Spreadsheet::addNamedRange/addDefinedName`, `NamedRange` | |
 | Page setup | `getPageSetup()->setOrientation/setPaperSize/setFitToWidth/setFitToHeight/setFitToPage` | applied at save |
 
+## Supported (Phase 3 — advanced)
+
+| Area | API | Notes |
+|---|---|---|
+| Formulas | `getCalculatedValue()`, `toArray(calculateFormulas: true)`, `rangeToArray(...)` | delegated to excelize's engine: **466 of PhpSpreadsheet's 529 functions** available, per-function table in [FORMULAS.md](FORMULAS.md); cached results in loaded files are trusted |
+| Data validation | `Cell::getDataValidation()` (bound, setters apply), `Cell::setDataValidation`, `Worksheet::setDataValidation(range, dv)`, all `TYPE_*`/`OPERATOR_*`/`STYLE_*` constants | list (literal + range source), whole/decimal/date/time/textLength/custom |
+| Conditional formatting | `getStyle(range)->setConditionalStyles([Conditional…])`, `Conditional` (cellIs/containsText/expression + operators, `getStyle()` detached collector, `setStopIfTrue`) | plus easy-excel extras `setColorScale(min, max, mid?)` and `setDataBar(color)` (PhpSpreadsheet models these as separate classes) |
+| Images | `Worksheet\Drawing`: `setName/setDescription/setPath/setCoordinates/setOffsetX/Y/setWidth/setHeight/setWorksheet` | width/height scale from the decoded PNG/JPEG/GIF dimensions; aspect kept when only one side is set |
+| Sheet protection | `getProtection()->setSheet/setPassword` + all action-lock flags | applied at save; workbook encryption is not supported |
+| Charts | **native API only**: `Worksheet::addNativeChart($cell, $spec)` / `Native::addChart` with a declarative spec (type, series, title, legend, size); types: area/bar/barStacked/col/colStacked/doughnut/line/pie/radar/scatter | PhpSpreadsheet's `Chart` object model is **not** mapped — see "Not yet supported" |
+| Auto-filter | `setAutoFilter` on streamed sheets | now injected into the saved container (no degrade); see divergence 16 |
+
 ## Documented divergences
 
 1. **`toArray(formatData: false)` types** — values come back from excelize as
@@ -68,9 +80,10 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 10. **Auto-size width** — PhpSpreadsheet measures rendered text with font
     metrics; easy-excel approximates with `max character count + 2`,
     applied at save. Visually close, not byte-identical.
-11. **Auto-filter, hyperlinks, comments, auto-size, page setup** — excelize
-    cannot stream these, so they are applied at save (degrading once if the
-    sheet streamed). The data path itself stays streaming.
+11. **Hyperlinks, comments, auto-size, page setup, validations, conditional
+    formats, images, protection, charts** — excelize cannot stream these, so
+    they are applied at save (degrading once if the sheet streamed). The data
+    path itself stays streaming.
 12. **Range styles assume uniform ranges** — `getStyle('A1:C10')` applies one
     merged style to the whole range. Earlier styles fully containing the
     range are layered in (like PhpSpreadsheet); partially-overlapping earlier
@@ -81,12 +94,31 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 14. **Style read-back** — `getFont()->getBold()` etc. return what was set on
     that PHP style object, not the stylesheet state of a loaded file.
 15. **Comment rich text** — comments are plain text; `Run::getFont()` throws.
+16. **Auto-filter on streamed sheets** — when the auto-filter is the only
+    non-streamable op, the `<autoFilter>` element is injected into the saved
+    container directly (raw zip copy + one worksheet rewrite), so million-row
+    filtered exports stay streaming. When other save-time ops force a degrade
+    anyway, the filter rides that instead. The `_xlnm._FilterDatabase` defined
+    name PhpSpreadsheet writes is omitted (Excel does not require it).
+17. **Bulk calculated reads** — `toArray(calculateFormulas: true)` evaluates
+    only formula cells **without a cached result** (anything Excel or
+    excelize previously saved is trusted, like PhpSpreadsheet with
+    pre-calculated formulas enabled). A formula whose evaluation errors comes
+    back empty rather than throwing.
+18. **Conditional formatting model** — color scales and data bars use the
+    easy-excel `setColorScale`/`setDataBar` helpers rather than
+    PhpSpreadsheet's `ConditionalColorScale`/`ConditionalDataBar` object
+    graphs; range styles apply one rule list per `setConditionalStyles` call
+    (replacing semantics within a range).
+19. **Formula coverage** — 466/529 functions; the differences are listed in
+    FORMULAS.md and unknown functions error at calculation, not at write.
 
 ## Not yet supported (throws a clear exception)
 
 - Gradient fills, diagonal/vertical/horizontal borders
-- Charts, data validation, conditional formatting, images/drawings,
-  protection/encryption (Phase 3)
+- PhpSpreadsheet's `Chart` object model (`PhpOffice\PhpSpreadsheet\Chart\*`):
+  use the native declarative API (`Worksheet::addNativeChart`) instead
+- Workbook encryption / password-protected open
 - Readers/Writers: Ods, Xls, Html, Pdf, Slk, Gnumeric — not planned for the
   native engine; install the real `phpoffice/phpspreadsheet` alongside (the
   alias bootstrap then defers to it) or convert externally

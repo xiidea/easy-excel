@@ -189,7 +189,7 @@ func TestChunkedSequentialRead(t *testing.T) {
 
 	got := 0
 	for start := 1; ; {
-		chunk, more, err := w.ReadRows("Worksheet", start, 10, true)
+		chunk, more, err := w.ReadRows("Worksheet", start, 10, true, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -203,7 +203,7 @@ func TestChunkedSequentialRead(t *testing.T) {
 		t.Fatalf("read %d rows, want 25", got)
 	}
 	// rewind: a lower start must transparently restart the iterator
-	chunk, _, err := w.ReadRows("Worksheet", 1, 1, true)
+	chunk, _, err := w.ReadRows("Worksheet", 1, 1, true, false)
 	if err != nil || len(chunk) != 1 || chunk[0][0] != "1" {
 		t.Fatalf("rewind read: %v, %v", chunk, err)
 	}
@@ -216,7 +216,7 @@ func TestSparseRowAlignment(t *testing.T) {
 	defer w.Close()
 	_ = w.SetCell("Worksheet", "A1", mustCells(t, "first")[0])
 	_ = w.SetCell("Worksheet", "A5", mustCells(t, "fifth")[0])
-	rows, _, err := w.ReadRows("Worksheet", 1, 10, true)
+	rows, _, err := w.ReadRows("Worksheet", 1, 10, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

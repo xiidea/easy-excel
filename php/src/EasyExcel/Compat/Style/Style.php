@@ -24,8 +24,26 @@ class Style
     private ?Alignment $alignment = null;
     private ?Protection $protection = null;
 
-    public function __construct(private Worksheet $worksheet, private string $range)
+    /** @var array<string, mixed> collected spec when detached (conditional styles) */
+    private array $collected = [];
+
+    public function __construct(private ?Worksheet $worksheet, private string $range)
     {
+    }
+
+    /**
+     * A detached Style collects its spec locally instead of styling cells;
+     * used by Conditional::getStyle().
+     */
+    public static function detached(): self
+    {
+        return new self(null, '');
+    }
+
+    /** @internal @return array<string, mixed> */
+    public function getCollectedSpec(): array
+    {
+        return $this->collected;
     }
 
     public function getFont(): Font
@@ -55,7 +73,31 @@ class Style
 
     public function getNumberFormat(): NumberFormat
     {
+        if ($this->worksheet === null) {
+            return new NumberFormat(null, '', $this);
+        }
+
         return new NumberFormat($this->worksheet, $this->range);
+    }
+
+    /**
+     * Replaces the conditional-formatting rules for this style's range.
+     *
+     * @param list<Conditional> $conditionalStyles
+     */
+    public function setConditionalStyles(array $conditionalStyles): static
+    {
+        if ($this->worksheet === null) {
+            throw new \EasyExcel\Compat\Exception('easy-excel: conditional styles need a worksheet range');
+        }
+        Native::setConditional(
+            $this->worksheet->getParent()->getHandle(),
+            $this->worksheet->getTitle(),
+            $this->range,
+            \array_map(static fn (Conditional $c): array => $c->toSpec(), $conditionalStyles),
+        );
+
+        return $this;
     }
 
     /** @param array<string, mixed> $styleArray PhpSpreadsheet's nested style array */
@@ -83,11 +125,29 @@ class Style
         if ($spec === []) {
             return;
         }
+        if ($this->worksheet === null) {
+            $this->collected = self::deepMerge($this->collected, $spec);
+
+            return;
+        }
         Native::applyStyle(
             $this->worksheet->getParent()->getHandle(),
             $this->worksheet->getTitle(),
             $this->range,
             $spec,
         );
+    }
+
+    private static function deepMerge(array $base, array $patch): array
+    {
+        foreach ($patch as $k => $v) {
+            if (\is_array($v) && isset($base[$k]) && \is_array($base[$k])) {
+                $base[$k] = self::deepMerge($base[$k], $v);
+            } else {
+                $base[$k] = $v;
+            }
+        }
+
+        return $base;
     }
 }

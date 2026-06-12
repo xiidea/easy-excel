@@ -125,6 +125,70 @@ check($rs3->getHighestRow() === 5000, 'styled file row count');
 $r3->disconnectWorksheets();
 @\unlink($styled);
 
+// --- phase 3: validation, conditional, image, protection, chart, calc reads -----
+$s4 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws4 = $s4->getActiveSheet();
+$ws4->fromArray([['Status', 'Qty', 'Total'], ['open', 5, '=B2*2'], ['paid', 9, '=B3*2']]);
+
+$v = $ws4->getCell('A2')->getDataValidation();
+$v->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST)
+    ->setFormula1('"open,paid,void"')->setAllowBlank(true)->setShowErrorMessage(true);
+
+$rule = new \PhpOffice\PhpSpreadsheet\Style\Conditional();
+$rule->setConditionType(\PhpOffice\PhpSpreadsheet\Style\Conditional::CONDITION_CELLIS)
+    ->setOperatorType(\PhpOffice\PhpSpreadsheet\Style\Conditional::OPERATOR_GREATERTHAN)
+    ->addCondition('6');
+$rule->getStyle()->getFont()->setBold(true);
+$ws4->getStyle('B2:B3')->setConditionalStyles([$rule]);
+
+$png = \sys_get_temp_dir() . '/smoke-logo.png';
+\file_put_contents($png, \base64_decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+));
+$drawing = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
+$drawing->setName('Logo')->setPath($png)->setCoordinates('E1')->setWidth(32);
+$drawing->setWorksheet($ws4);
+
+$ws4->getProtection()->setPassword('smoke')->setSheet(true);
+$ws4->addNativeChart('E5', [
+    'type' => 'col',
+    'title' => 'Qty',
+    'series' => [['name' => 'Worksheet!$B$1', 'categories' => 'Worksheet!$A$2:$A$3', 'values' => 'Worksheet!$B$2:$B$3']],
+]);
+
+$calc = $ws4->toArray(null, true, false);
+check($calc[1][2] == 10 && $calc[2][2] == 18, 'bulk calculated read evaluates formulas');
+
+$p3file = \sys_get_temp_dir() . '/smoke-phase3.xlsx';
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s4, 'Xlsx')->save($p3file);
+check(\is_file($p3file) && \filesize($p3file) > 2000, 'phase-3 features saved (' . \filesize($p3file) . ' bytes)');
+$s4->disconnectWorksheets();
+
+$r4 = \PhpOffice\PhpSpreadsheet\IOFactory::load($p3file);
+check($r4->getActiveSheet()->getCell('B3')->getValue() === 9.0, 'phase-3 file loads back with data intact');
+$r4->disconnectWorksheets();
+@\unlink($p3file);
+@\unlink($png);
+
+// streamed auto-filter rides the container patch (no degrade)
+$s5 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws5 = $s5->getActiveSheet();
+$big = [['Name', 'Qty']];
+for ($i = 2; $i <= 2000; ++$i) {
+    $big[] = ["row-$i", $i];
+}
+$ws5->fromArray($big);
+$ws5->setAutoFilter('A1:B2000');
+$affile = \sys_get_temp_dir() . '/smoke-filter.xlsx';
+$t2 = \hrtime(true);
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s5, 'Xlsx')->save($affile);
+$ms = (int) ((\hrtime(true) - $t2) / 1e6);
+$s5->disconnectWorksheets();
+$r5 = \PhpOffice\PhpSpreadsheet\IOFactory::load($affile);
+check($r5->getActiveSheet()->getHighestRow() === 2000, "auto-filter patched container loads ({$ms}ms)");
+$r5->disconnectWorksheets();
+@\unlink($affile);
+
 // --- csv + load control surface ------------------------------------------------
 $s2 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
 $s2->getActiveSheet()->fromArray([['a', '-x', 'b,c']]);

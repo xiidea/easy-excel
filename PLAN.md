@@ -380,6 +380,32 @@ what/why/impact note per significant change (response time, throughput, memory, 
 > OpenSpout) shows DEFLATE is not the current bottleneck. Re-evaluate with
 > profiling per §3.
 
+> **Phase-3 outcome (2026-06-12):**
+>
+> - **Streaming auto-filter** shipped: the saved container is patched (raw
+>   zip copy + one worksheet rewrite injecting `<autoFilter>` after
+>   `</sheetData>`), removing the Phase-2 degrade cliff for filtered streamed
+>   exports. The inline styler also gained a per-batch row-uniform fast path
+>   (bitmask-cached entry sets instead of per-cell string keys). Measured
+>   (same session, machine ~1.5× slower than the Phase-2 session): styled
+>   100k 4.30s→1.93s and PhpSpreadsheet ratio 4.0×→**13.9×**; styled 1M
+>   121s→**18.5s** (vs 11.9s unstyled control — the filter+styles now cost
+>   ~1.6× instead of ~10×).
+> - **Formula engine**: bulk calculated reads (`toArray(calculateFormulas:
+>   true)`) evaluate uncached formula cells through excelize; coverage table
+>   published in FORMULAS.md — **466/529** PhpSpreadsheet functions
+>   (generator: `extension/tools/formula-coverage`).
+> - **Data validation, conditional formatting (cellIs/containsText/expression
+>   + colorScale/dataBar helpers), images with dimension-derived scaling,
+>   sheet protection** via PhpSpreadsheet APIs; **charts** via a native
+>   declarative API mapped to excelize.AddChart (PhpSpreadsheet's chart
+>   object graph deliberately not mapped — COMPAT.md).
+> - **Dropped with rationale:** template cache (excelize has no safe model
+>   clone; the cache could only hold bytes, which OS page cache already
+>   does) and the async ticket API (saves measured at 0.8–13s; FrankenPHP
+>   worker + queue patterns cover the rest). Workbook encryption out of
+>   scope.
+
 ---
 
 ## 14. Open questions for approval

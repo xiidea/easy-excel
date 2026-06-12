@@ -78,6 +78,18 @@ class Cell
         return $this->worksheet->getStyle($this->coordinate);
     }
 
+    public function getDataValidation(): DataValidation
+    {
+        return (new DataValidation())->bind($this->worksheet, $this->coordinate);
+    }
+
+    public function setDataValidation(?DataValidation $dataValidation): static
+    {
+        $this->worksheet->setDataValidation($this->coordinate, $dataValidation);
+
+        return $this;
+    }
+
     public function getDataType(): string
     {
         $v = $this->getValue();

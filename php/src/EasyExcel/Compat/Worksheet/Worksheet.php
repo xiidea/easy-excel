@@ -36,6 +36,8 @@ class Worksheet
 
     private ?PageSetup $pageSetup = null;
 
+    private ?Protection $protection = null;
+
     public function __construct(private Spreadsheet $parent, private string $title)
     {
     }
@@ -158,7 +160,7 @@ class Worksheet
         $this->flush();
         [$maxRow, $maxCol] = Native::dimensions($this->parent->getHandle(), $this->title);
 
-        return $this->collectRows(1, \max($maxRow, 1), 1, \max($maxCol, 1), $nullValue, $formatData, $returnCellRef);
+        return $this->collectRows(1, \max($maxRow, 1), 1, \max($maxCol, 1), $nullValue, $formatData, $returnCellRef, $calculateFormulas);
     }
 
     public function rangeToArray(string $range, mixed $nullValue = null, bool $calculateFormulas = true, bool $formatData = true, bool $returnCellRef = false): array
@@ -166,21 +168,21 @@ class Worksheet
         $this->flush();
         [[$startCol, $startRow], [$endCol, $endRow]] = Coordinate::rangeBoundaries($range);
 
-        return $this->collectRows($startRow, $endRow, $startCol, $endCol, $nullValue, $formatData, $returnCellRef);
+        return $this->collectRows($startRow, $endRow, $startCol, $endCol, $nullValue, $formatData, $returnCellRef, $calculateFormulas);
     }
 
     /**
      * Chunked extension reads (1k rows per CGO call, PLAN.md §6) assembled
      * into PhpSpreadsheet's toArray() shape.
      */
-    private function collectRows(int $startRow, int $endRow, int $startCol, ?int $endCol, mixed $nullValue, bool $formatData, bool $returnCellRef): array
+    private function collectRows(int $startRow, int $endRow, int $startCol, ?int $endCol, mixed $nullValue, bool $formatData, bool $returnCellRef, bool $calc = false): array
     {
         $handle = $this->parent->getHandle();
         $out = [];
         $row = $startRow;
         while ($row <= $endRow) {
             $want = \min(1000, $endRow - $row + 1);
-            [$rows, $more] = Native::readRows($handle, $this->title, $row, $want, !$formatData);
+            [$rows, $more] = Native::readRows($handle, $this->title, $row, $want, !$formatData, $calc);
             $got = \count($rows);
             foreach ($rows as $i => $cols) {
                 $rowNum = $row + $i;
@@ -356,6 +358,38 @@ class Worksheet
     public function getPageSetup(): PageSetup
     {
         return $this->pageSetup ??= new PageSetup($this);
+    }
+
+    public function getProtection(): Protection
+    {
+        return $this->protection ??= new Protection($this);
+    }
+
+    public function setDataValidation(string $range, ?\EasyExcel\Compat\Cell\DataValidation $dataValidation): static
+    {
+        if ($dataValidation !== null) {
+            Native::setValidation(
+                $this->parent->getHandle(),
+                $this->title,
+                $range,
+                $dataValidation->toSpec(),
+            );
+        }
+
+        return $this;
+    }
+
+    /**
+     * easy-excel native chart API; PhpSpreadsheet's chart object model is not
+     * mapped (COMPAT.md).
+     *
+     * @param array<string, mixed> $spec ['type','series','title','legend','width','height']
+     */
+    public function addNativeChart(string $cell, array $spec): static
+    {
+        Native::addChart($this->parent->getHandle(), $this->title, $cell, $spec);
+
+        return $this;
     }
 
     // --- internals -----------------------------------------------------------------

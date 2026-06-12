@@ -224,9 +224,9 @@ function easy_excel_get_cell(int $handle, string $sheet, string $cell, int $mode
     return [$v, null];
 }
 
-function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw): array
+function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw, bool $calc = false): array
 {
-    EasyExcelFake::$log[] = ['read_rows', [$handle, $sheet, $startRow, $maxRows, $raw]];
+    EasyExcelFake::$log[] = ['read_rows', [$handle, $sheet, $startRow, $maxRows, $raw, $calc]];
     $s = &EasyExcelFake::sheet($handle, $sheet);
     $out = [];
     $last = \min($s['maxRow'], $startRow + $maxRows - 1);
@@ -334,6 +334,61 @@ function easy_excel_defined_name(int $handle, string $name, string $refersTo, st
 function easy_excel_page_setup(int $handle, string $sheet, string $orientation, int $paperSize, int $fitToWidth, int $fitToHeight): ?string
 {
     EasyExcelFake::$log[] = ['page_setup', [$handle, $sheet, $orientation, $paperSize, $fitToWidth, $fitToHeight]];
+
+    return null;
+}
+
+function easy_excel_set_validation(int $handle, string $sheet, string $range, string $validationJson): ?string
+{
+    $spec = \json_decode($validationJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: validation spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['set_validation', [$handle, $sheet, $range, $spec]];
+
+    return null;
+}
+
+function easy_excel_set_conditional(int $handle, string $sheet, string $range, string $rulesJson): ?string
+{
+    $rules = \json_decode($rulesJson, true);
+    if (!\is_array($rules)) {
+        return 'fake: conditional rules are not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['set_conditional', [$handle, $sheet, $range, $rules]];
+
+    return null;
+}
+
+function easy_excel_add_image(int $handle, string $sheet, string $cell, string $imageJson): ?string
+{
+    $spec = \json_decode($imageJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: image spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['add_image', [$handle, $sheet, $cell, $spec]];
+
+    return null;
+}
+
+function easy_excel_protect_sheet(int $handle, string $sheet, string $protectionJson): ?string
+{
+    $spec = \json_decode($protectionJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: protection spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['protect_sheet', [$handle, $sheet, $spec]];
+
+    return null;
+}
+
+function easy_excel_add_chart(int $handle, string $sheet, string $cell, string $chartJson): ?string
+{
+    $spec = \json_decode($chartJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: chart spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['add_chart', [$handle, $sheet, $cell, $spec]];
 
     return null;
 }

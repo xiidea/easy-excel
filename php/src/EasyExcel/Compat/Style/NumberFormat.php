@@ -33,13 +33,22 @@ class NumberFormat
 
     private string $formatCode = self::FORMAT_GENERAL;
 
-    public function __construct(private Worksheet $worksheet, private string $range)
-    {
+    public function __construct(
+        private ?Worksheet $worksheet,
+        private string $range,
+        private ?Style $detachedParent = null,
+    ) {
     }
 
     public function setFormatCode(string $formatCode): static
     {
         $this->formatCode = $formatCode;
+        if ($this->worksheet === null) {
+            // detached (conditional style): collect on the parent Style
+            $this->detachedParent?->mergeComponent('numberFormat', ['formatCode' => $formatCode]);
+
+            return $this;
+        }
         // no flush: the Go style log is coordinate-based and keeps formats
         // queued before their rows stream-compatible
         Native::setNumberFormat(

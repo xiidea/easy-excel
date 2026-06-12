@@ -119,25 +119,36 @@ Apple Silicon; `bench/baseline-2026-06-11-php8.5.csv`):
 
 Styled report (same data + styled header, two column number formats, widths,
 freeze pane, auto-filter; `write-styled` workload,
-`bench/baseline-2026-06-12-php8.5-styled.csv`):
+`bench/baseline-2026-06-12-php8.5-phase3.csv`; this session ran ~1.5× slower
+than the table above — its unstyled 1M control was 11.9s — so compare ratios,
+not sessions):
 
 | Library | 100k rows | 1M rows | Peak PHP memory |
 |---|---|---|---|
-| PhpSpreadsheet 5.8 | 17.27s | — | 670MB at 100k |
-| **easy-excel** | **4.30s** | 121.4s / **12.6s without auto-filter** | **4MB** |
+| PhpSpreadsheet 5.8 | 26.79s | — | 670MB at 100k |
+| **easy-excel** | **1.93s** (13.9×) | **18.5s** | **4MB** |
 
-Styles stream inline; the auto-filter is the one op excelize cannot stream,
-so it costs a one-time degrade at save — negligible at 100k, dominant at 1M
-(COMPAT.md §11). Skip `setAutoFilter` on million-row exports until the
-Phase-3 streaming filter lands.
+Styles stream inline, and since Phase 3 the auto-filter no longer degrades
+either: the `<autoFilter>` element is injected into the saved container
+directly (COMPAT.md §16). In Phase 2 the same styled 1M lane took 121s; the
+streaming filter and the batch-uniform style resolver cut it to ~1.6× the
+unstyled write.
 
 ## Status
 
-Phase 2 (formatting & structure) complete: the full style graph (font, fill,
-borders, alignment, protection, number formats) with PhpSpreadsheet's
-`applyFromArray`/`getStyle(range)` layering, column widths/auto-size, row
-heights, merged cells, auto-filter, freeze panes, hyperlinks, comments,
-defined names and page setup. Styles applied before their rows are written
-are inlined into the stream — the usual "style header → bulk write" report
-keeps constant memory and full write speed. See COMPAT.md for the precise
-matrix and the documented divergences. Reproduce the numbers with `make bench`.
+Phase 3 (advanced compat) complete, on top of Phase 2's full style graph and
+worksheet structure:
+
+- **Formulas**: `getCalculatedValue()` and bulk `toArray(calculateFormulas:
+  true)` via excelize's engine — **466/529** PhpSpreadsheet functions, per-
+  function table in [FORMULAS.md](FORMULAS.md).
+- **Data validation, conditional formatting, images, sheet protection** with
+  the PhpSpreadsheet APIs; **charts** via a native declarative API
+  (`addNativeChart`).
+- **Streaming auto-filter**: filtered million-row exports no longer degrade —
+  the filter is injected into the saved container.
+
+Styles applied before their rows are written are inlined into the stream, so
+the usual "style header → bulk write" report keeps constant memory and full
+write speed. See COMPAT.md for the precise matrix and documented divergences.
+Reproduce the numbers with `make bench`.

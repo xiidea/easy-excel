@@ -123,9 +123,9 @@ final class Native
     }
 
     /** @return array{0: list<list<string>>, 1: bool} [rows, more] */
-    public static function readRows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw): array
+    public static function readRows(int $handle, string $sheet, int $startRow, int $maxRows, bool $raw, bool $calc = false): array
     {
-        return self::unwrap(\easy_excel_read_rows($handle, $sheet, $startRow, $maxRows, $raw));
+        return self::unwrap(\easy_excel_read_rows($handle, $sheet, $startRow, $maxRows, $raw, $calc));
     }
 
     /** @return array{0: int, 1: int} [highestRow, highestCol] */
@@ -193,6 +193,41 @@ final class Native
     public static function pageSetup(int $handle, string $sheet, string $orientation, int $paperSize, int $fitToWidth, int $fitToHeight): void
     {
         self::check(\easy_excel_page_setup($handle, $sheet, $orientation, $paperSize, $fitToWidth, $fitToHeight));
+    }
+
+    /** @param array<string, mixed> $spec PhpSpreadsheet DataValidation shape */
+    public static function setValidation(int $handle, string $sheet, string $range, array $spec): void
+    {
+        self::check(\easy_excel_set_validation($handle, $sheet, $range, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param list<array<string, mixed>> $rules conditional-formatting rules */
+    public static function setConditional(int $handle, string $sheet, string $range, array $rules): void
+    {
+        self::check(\easy_excel_set_conditional($handle, $sheet, $range, \json_encode($rules, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array<string, mixed> $spec path/name/offsets/width/height */
+    public static function addImage(int $handle, string $sheet, string $cell, array $spec): void
+    {
+        self::check(\easy_excel_add_image($handle, $sheet, $cell, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array<string, mixed> $spec PhpSpreadsheet Worksheet\Protection flags */
+    public static function protectSheet(int $handle, string $sheet, array $spec): void
+    {
+        self::check(\easy_excel_protect_sheet($handle, $sheet, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /**
+     * easy-excel native chart API (PhpSpreadsheet's chart object model is not
+     * mapped; see COMPAT.md).
+     *
+     * @param array<string, mixed> $spec ['type', 'series' => [['name','categories','values']], 'title', 'legend' => ['position'], 'width', 'height']
+     */
+    public static function addChart(int $handle, string $sheet, string $cell, array $spec): void
+    {
+        self::check(\easy_excel_add_chart($handle, $sheet, $cell, \json_encode($spec, \JSON_THROW_ON_ERROR)));
     }
 
     public static function saveXlsx(int $handle, string $path): void

@@ -46,6 +46,11 @@ const (
 	opHyperlink
 	opComment
 	opPageSetup
+	opValidation
+	opConditional
+	opImage
+	opProtect
+	opChart
 )
 
 type pendingOp struct {
@@ -381,51 +386,85 @@ func applyPreOps(sw *excelize.StreamWriter, st *sheetState) error {
 }
 
 // inlineStyler resolves the interned style ID for cells of streamed rows from
-// the queued inline entries, memoizing per distinct entry combination.
+// the queued inline entries. Matched entry sets are encoded as a bitmask and
+// memoized, and entries whose row span covers the whole batch are additionally
+// cached per column — so the hot loop for the common case (header style +
+// full-column formats) is two map hits, no allocations.
 type inlineStyler struct {
 	w       *Workbook
 	st      *sheetState
 	indices []int
-	cache   map[string]int
+	cache   map[uint64]int
+	colIDs  map[int]int // per-column result when all entries are row-uniform
+	uniform bool
 }
 
-func (w *Workbook) newInlineStyler(st *sheetState) *inlineStyler {
+func (w *Workbook) newInlineStyler(st *sheetState, batchMinRow, batchMaxRow int) *inlineStyler {
 	var idx []int
 	for i := range st.styleLog {
 		if e := &st.styleLog[i]; e.inline && !e.done {
 			idx = append(idx, i)
 		}
 	}
-	if len(idx) == 0 {
+	if len(idx) == 0 || len(idx) > 64 {
+		if len(idx) > 64 {
+			// fall back to marking them non-inline; replayed at save
+			for _, i := range idx {
+				st.styleLog[i].inline = false
+			}
+		}
 		return nil
 	}
-	return &inlineStyler{w: w, st: st, indices: idx, cache: map[string]int{}}
+	s := &inlineStyler{w: w, st: st, indices: idx, cache: map[uint64]int{}, uniform: true}
+	for _, i := range idx {
+		e := &st.styleLog[i]
+		inside := e.r1 <= batchMinRow && (e.r2 == 0 || e.r2 >= batchMaxRow)
+		outside := e.r1 > batchMaxRow || (e.r2 != 0 && e.r2 < batchMinRow)
+		if !inside && !outside {
+			s.uniform = false
+			break
+		}
+	}
+	if s.uniform {
+		s.colIDs = map[int]int{}
+	}
+	return s
 }
 
 func (s *inlineStyler) styleID(row, col int) (int, error) {
-	var key strings.Builder
-	var matched []int
-	for _, i := range s.indices {
-		if s.st.styleLog[i].containsCell(row, col) {
-			matched = append(matched, i)
-			fmt.Fprintf(&key, "%d,", i)
+	if s.uniform {
+		if id, ok := s.colIDs[col]; ok {
+			return id, nil
 		}
 	}
-	if len(matched) == 0 {
-		return 0, nil
+	var mask uint64
+	for bit, i := range s.indices {
+		if s.st.styleLog[i].containsCell(row, col) {
+			mask |= 1 << uint(bit)
+		}
 	}
-	if id, ok := s.cache[key.String()]; ok {
-		return id, nil
+	id := 0
+	if mask != 0 {
+		if cached, ok := s.cache[mask]; ok {
+			id = cached
+		} else {
+			merged := compat.StyleSpec{}
+			for bit, i := range s.indices {
+				if mask&(1<<uint(bit)) != 0 {
+					merged = compat.MergeSpec(merged, s.st.styleLog[i].spec)
+				}
+			}
+			interned, err := s.w.styles.specID(s.w.f, merged)
+			if err != nil {
+				return 0, err
+			}
+			s.cache[mask] = interned
+			id = interned
+		}
 	}
-	merged := compat.StyleSpec{}
-	for _, i := range matched {
-		merged = compat.MergeSpec(merged, s.st.styleLog[i].spec)
+	if s.uniform {
+		s.colIDs[col] = id
 	}
-	id, err := s.w.styles.specID(s.w.f, merged)
-	if err != nil {
-		return 0, err
-	}
-	s.cache[key.String()] = id
 	return id, nil
 }
 
@@ -595,7 +634,7 @@ func (w *Workbook) applyOp(sheet string, op pendingOp) error {
 		}
 		return w.f.SetPageLayout(sheet, &layout)
 	}
-	return fmt.Errorf("easy-excel: unknown pending op %d", op.kind)
+	return w.applyOpPhase3(sheet, op)
 }
 
 // autoSizeCols approximates PhpSpreadsheet's auto-size: widest formatted

@@ -74,6 +74,7 @@ type Workbook struct {
 	mu       sync.Mutex
 	f        *excelize.File
 	sheets   map[string]*sheetState
+	filters  map[string]string // sheet → auto-filter ref injected at save
 	gate     *limits.Gate
 	policy   *exio.Policy
 	styles   styleInterner
@@ -117,6 +118,7 @@ func New(env *Env) (*Workbook, error) {
 	w := &Workbook{
 		f:        f,
 		sheets:   map[string]*sheetState{"Worksheet": {eligible: true, dimsKnown: true}},
+		filters:  map[string]string{},
 		gate:     env.gate(),
 		policy:   env.policy(),
 		estBytes: baseEstimate,
@@ -154,6 +156,7 @@ func Open(path string, env *Env) (*Workbook, error) {
 	w := &Workbook{
 		f:        f,
 		sheets:   map[string]*sheetState{},
+		filters:  map[string]string{},
 		gate:     env.gate(),
 		policy:   env.policy(),
 		estBytes: est,
@@ -238,6 +241,7 @@ func (w *Workbook) DeleteSheet(name string) error {
 		return err
 	}
 	delete(w.sheets, name)
+	delete(w.filters, name)
 	return nil
 }
 
@@ -263,6 +267,10 @@ func (w *Workbook) RenameSheet(oldName, newName string) error {
 	}
 	delete(w.sheets, oldName)
 	w.sheets[newName] = st
+	if ref, ok := w.filters[oldName]; ok {
+		delete(w.filters, oldName)
+		w.filters[newName] = ref
+	}
 	return nil
 }
 
@@ -362,7 +370,7 @@ func (w *Workbook) streamRows(sheet string, st *sheetState, startRow, startCol i
 		}
 		st.sw = sw
 	}
-	styler := w.newInlineStyler(st)
+	styler := w.newInlineStyler(st, startRow, startRow+len(rows)-1)
 	for i, row := range rows {
 		rowNum := startRow + i
 		if rowNum <= st.lastRow {
@@ -620,8 +628,11 @@ func typedValue(f *excelize.File, sheet, axis, raw string) any {
 // ReadRows returns up to maxRows rows starting at startRow (1-based) as
 // formatted or raw strings. Sequential chunked reads reuse a cached forward
 // iterator, so a full-sheet scan in chunks stays O(n) (PLAN.md §6).
-// The second return value is false when the sheet is exhausted.
-func (w *Workbook) ReadRows(sheet string, startRow, maxRows int, raw bool) ([][]string, bool, error) {
+// With calc, formula cells without a cached result are evaluated through
+// excelize's engine (cached results are trusted, like PhpSpreadsheet's
+// pre-calculated values). The second return value is false when the sheet
+// is exhausted.
+func (w *Workbook) ReadRows(sheet string, startRow, maxRows int, raw, calc bool) ([][]string, bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -664,6 +675,23 @@ func (w *Workbook) ReadRows(sheet string, startRow, maxRows int, raw bool) ([][]
 		cols, err := st.iter.Columns(opts...)
 		if err != nil {
 			return nil, false, err
+		}
+		if calc {
+			row := st.iterNext
+			for j, v := range cols {
+				if v != "" {
+					continue
+				}
+				axis, err := excelize.CoordinatesToCellName(j+1, row)
+				if err != nil {
+					continue
+				}
+				if formula, err := w.f.GetCellFormula(sheet, axis); err == nil && formula != "" {
+					if val, err := w.f.CalcCellValue(sheet, axis); err == nil {
+						cols[j] = val
+					}
+				}
+			}
 		}
 		st.iterNext++
 		out = append(out, cols)
@@ -801,7 +829,33 @@ func (w *Workbook) SaveXlsx(path string) error {
 	if err := w.settleForSave(); err != nil {
 		return err
 	}
-	return w.f.SaveAs(abs)
+	patches := w.filterPatches()
+	if len(patches) == 0 {
+		return w.f.SaveAs(abs)
+	}
+	tmp := abs + ".unpatched.xlsx" // excelize validates the extension
+	if err := w.f.SaveAs(tmp); err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	src, err := os.Open(tmp)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	fi, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.Create(abs)
+	if err != nil {
+		return err
+	}
+	if err := patchAutoFilters(src, fi.Size(), out, patches); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // WriteXlsxTo streams the workbook to an arbitrary writer (php:// targets).
@@ -819,19 +873,82 @@ func (w *Workbook) WriteXlsxTo(out io.Writer) error {
 	if err := w.settleForSave(); err != nil {
 		return err
 	}
-	return w.f.Write(out)
+	patches := w.filterPatches()
+	if len(patches) == 0 {
+		return w.f.Write(out)
+	}
+	tmp, err := os.CreateTemp("", "easyexcel-*.xlsx")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if err := w.f.Write(tmp); err != nil {
+		return err
+	}
+	fi, err := tmp.Stat()
+	if err != nil {
+		return err
+	}
+	return patchAutoFilters(tmp, fi.Size(), out, patches)
 }
 
 // settleForSave brings the workbook into a saveable state: queued structure
 // work that excelize cannot stream forces the documented one-time degrade,
-// otherwise the stream writers are just flushed.
+// otherwise the stream writers are just flushed. Auto-filters on streamed
+// sheets are special-cased: when they are the only reason to degrade, they
+// are pulled out and injected into the saved container instead
+// (filterpatch.go), keeping the save streaming.
 func (w *Workbook) settleForSave() error {
+	anyStreamed := false
+	for _, st := range w.sheets {
+		if st.sw != nil {
+			anyStreamed = true
+		}
+	}
+	if anyStreamed {
+		extracted := map[string]string{}
+		for name, st := range w.sheets {
+			kept := st.pending[:0]
+			for _, op := range st.pending {
+				if op.kind == opAutoFilter {
+					tl, br, err := splitRange(op.ref)
+					if err != nil {
+						return err
+					}
+					extracted[name] = tl + ":" + br
+				} else {
+					kept = append(kept, op)
+				}
+			}
+			st.pending = kept
+		}
+		if w.hasAnyPendingWork() {
+			// a real degrade is unavoidable anyway: apply filters there too
+			for name, ref := range extracted {
+				st := w.sheets[name]
+				st.pending = append(st.pending, pendingOp{kind: opAutoFilter, ref: ref})
+			}
+		} else {
+			for name, ref := range extracted {
+				w.filters[name] = ref
+			}
+		}
+	}
 	if w.hasAnyPendingWork() {
 		if err := w.ensureRandomAll(); err != nil {
 			return err
 		}
 	}
 	return w.flushStreams()
+}
+
+func (w *Workbook) filterPatches() []filterPatch {
+	patches := make([]filterPatch, 0, len(w.filters))
+	for sheet, ref := range w.filters {
+		patches = append(patches, filterPatch{sheet: sheet, ref: ref})
+	}
+	return patches
 }
 
 func (w *Workbook) flushStreams() error {
