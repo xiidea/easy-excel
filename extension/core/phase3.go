@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -40,14 +42,17 @@ func (w *Workbook) SetConditionalFormat(sheet, ref, jsonRules string) error {
 	return w.queueOp(sheet, pendingOp{kind: opConditional, ref: ref, s1: jsonRules})
 }
 
-// imageSpec mirrors the shim's Drawing properties.
+// imageSpec mirrors the shim's Drawing properties. Either Path (file
+// drawing) or Data+Extension (MemoryDrawing, base64 bytes) is set.
 type imageSpec struct {
-	Path    string `json:"path"`
-	Name    string `json:"name"`
-	OffsetX int    `json:"offsetX"`
-	OffsetY int    `json:"offsetY"`
-	Width   int    `json:"width"`  // desired px; 0 = natural size
-	Height  int    `json:"height"` // desired px; 0 = natural size
+	Path      string `json:"path"`
+	Data      string `json:"data"`      // base64-encoded image bytes
+	Extension string `json:"extension"` // ".png" / ".jpeg" / ".gif" for Data
+	Name      string `json:"name"`
+	OffsetX   int    `json:"offsetX"`
+	OffsetY   int    `json:"offsetY"`
+	Width     int    `json:"width"`  // desired px; 0 = natural size
+	Height    int    `json:"height"` // desired px; 0 = natural size
 }
 
 // AddImage queues a picture anchored at cell. The file is resolved against
@@ -195,6 +200,23 @@ func (w *Workbook) applyImage(sheet string, op pendingOp) error {
 		ScaleX:  1,
 		ScaleY:  1,
 	}
+	// in-memory drawing: base64 bytes instead of a file path
+	if spec.Data != "" {
+		raw, err := base64.StdEncoding.DecodeString(spec.Data)
+		if err != nil {
+			return fmt.Errorf("easy-excel: image data: %w", err)
+		}
+		if spec.Width > 0 || spec.Height > 0 {
+			if cfg, _, err := image.DecodeConfig(bytes.NewReader(raw)); err == nil {
+				scaleToFit(opts, spec, cfg.Width, cfg.Height)
+			}
+		}
+		return w.f.AddPictureFromBytes(sheet, op.ref, &excelize.Picture{
+			Extension: spec.Extension,
+			File:      raw,
+			Format:    opts,
+		})
+	}
 	if spec.Width > 0 || spec.Height > 0 {
 		fh, err := os.Open(spec.Path)
 		if err != nil {
@@ -205,19 +227,24 @@ func (w *Workbook) applyImage(sheet string, op pendingOp) error {
 		if err != nil {
 			return fmt.Errorf("easy-excel: image %s: %w", spec.Path, err)
 		}
-		if spec.Width > 0 && cfg.Width > 0 {
-			opts.ScaleX = float64(spec.Width) / float64(cfg.Width)
-		}
-		if spec.Height > 0 && cfg.Height > 0 {
-			opts.ScaleY = float64(spec.Height) / float64(cfg.Height)
-		}
-		// PhpSpreadsheet keeps aspect ratio when only one side is set
-		if spec.Width > 0 && spec.Height == 0 {
-			opts.ScaleY = opts.ScaleX
-		}
-		if spec.Height > 0 && spec.Width == 0 {
-			opts.ScaleX = opts.ScaleY
-		}
+		scaleToFit(opts, spec, cfg.Width, cfg.Height)
 	}
 	return w.f.AddPicture(sheet, op.ref, spec.Path, opts)
+}
+
+// scaleToFit sets opts.ScaleX/Y so a natWidth×natHeight image renders at the
+// spec's requested px; aspect ratio is kept when only one side is given.
+func scaleToFit(opts *excelize.GraphicOptions, spec imageSpec, natWidth, natHeight int) {
+	if spec.Width > 0 && natWidth > 0 {
+		opts.ScaleX = float64(spec.Width) / float64(natWidth)
+	}
+	if spec.Height > 0 && natHeight > 0 {
+		opts.ScaleY = float64(spec.Height) / float64(natHeight)
+	}
+	if spec.Width > 0 && spec.Height == 0 {
+		opts.ScaleY = opts.ScaleX
+	}
+	if spec.Height > 0 && spec.Width == 0 {
+		opts.ScaleX = opts.ScaleY
+	}
 }

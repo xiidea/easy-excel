@@ -330,6 +330,24 @@ final class Native
         self::check(\easy_excel_page_margins($handle, $sheet, \json_encode($spec, \JSON_THROW_ON_ERROR)));
     }
 
+    /** @param list<array{text: string, font?: array<string, mixed>}> $runs */
+    public static function setRichText(int $handle, string $sheet, string $cell, array $runs): void
+    {
+        self::check(\easy_excel_set_rich_text($handle, $sheet, $cell, \json_encode($runs, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array<string, mixed> $spec data (base64) + extension + name/offsets/size */
+    public static function addImageBytes(int $handle, string $sheet, string $cell, array $spec): void
+    {
+        self::check(\easy_excel_add_image_bytes($handle, $sheet, $cell, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param list<array{column: string, expression: string}> $columns */
+    public static function autoFilterColumns(int $handle, string $sheet, string $range, array $columns): void
+    {
+        self::check(\easy_excel_auto_filter_columns($handle, $sheet, $range, \json_encode($columns, \JSON_THROW_ON_ERROR)));
+    }
+
     public static function saveCsv(
         int $handle,
         string $path,

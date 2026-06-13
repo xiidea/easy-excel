@@ -668,6 +668,39 @@ function easy_excel_page_margins(int $handle, string $sheet, string $marginsJson
     return null;
 }
 
+function easy_excel_set_rich_text(int $handle, string $sheet, string $cell, string $runsJson): ?string
+{
+    $runs = \json_decode($runsJson, true);
+    if (!\is_array($runs)) {
+        return 'fake: rich text is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['set_rich_text', [$handle, $sheet, $cell, $runs]];
+
+    return null;
+}
+
+function easy_excel_add_image_bytes(int $handle, string $sheet, string $cell, string $imageJson): ?string
+{
+    $spec = \json_decode($imageJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: image spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['add_image_bytes', [$handle, $sheet, $cell, $spec]];
+
+    return null;
+}
+
+function easy_excel_auto_filter_columns(int $handle, string $sheet, string $range, string $columnsJson): ?string
+{
+    $cols = \json_decode($columnsJson, true);
+    if (!\is_array($cols)) {
+        return 'fake: auto-filter columns are not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['auto_filter_columns', [$handle, $sheet, $range, $cols]];
+
+    return null;
+}
+
 function easy_excel_stats(): array
 {
     return [\count(EasyExcelFake::$store), 0];

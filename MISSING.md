@@ -13,6 +13,12 @@ deleted here.
 
 ## Found by the ERP report probe (`data/public/index.php`)
 
+Closed by wave 4.4 (2026-06-13): rich-text cell values with per-run fonts,
+GD `MemoryDrawing`, the PhpSpreadsheet `Chart\*` object model
+(`Worksheet::addChart`), and auto-filter column rules
+(`getAutoFilter()->getColumn()`). This completes Phase 4 — MISSING.md now
+lists only items that stay out by design.
+
 Closed by wave 4.3 (2026-06-13): insert/remove rows and columns,
 `createSheet($index)`, sheet copy (`Spreadsheet::copySheet` extra), sheet
 views (gridlines/zoom/RTL/tab color), headers/footers, page margins — plus
@@ -42,13 +48,9 @@ and calculation-cache no-ops.
   `Spreadsheet::copySheet` instead)
 
 **Content types**
-- `RichText` as a **cell value** (multi-format runs in one cell; comments
-  accept plain text only and `Run::getFont()` throws)
-- PhpSpreadsheet's `Chart\*` object model — use the native declarative API
-  instead (`Worksheet::addNativeChart`, NATIVE.md)
 - Vertical/horizontal borders (conditional-formatting-only border sides)
-- Drawings beyond file-based images (memory drawings, headers/footers
-  images, cell background images)
+- Header/footer images, cell background images (file & memory drawings
+  anchored to cells are supported)
 
 **Formats & security**
 - Readers/writers: Ods, Xls, Html, Pdf, Slk, Gnumeric — install the real
@@ -59,8 +61,8 @@ and calculation-cache no-ops.
 **Misc**
 - `Calculation` array-formula toggles (the cache controls are accepted
   no-ops since wave 4.1) — calculation is delegated to excelize
-- Cell autofilter object model (`getAutoFilter()->setRange()`,
-  column rules) — only `setAutoFilter($range)`
+- Auto-filter does not hide non-matching rows (column rules are recorded;
+  Excel re-applies on open — COMPAT.md §23)
 
 Want one of these? Open an issue at
 [xiidea/easy-excel](https://github.com/xiidea/easy-excel/issues) — gaps get

@@ -327,5 +327,5 @@ func (w *Workbook) applyOpPhase43(sheet string, op pendingOp) error {
 		set(&opts.Footer, spec.Footer)
 		return w.f.SetPageMargins(sheet, &opts)
 	}
-	return fmt.Errorf("easy-excel: unknown pending op %d", op.kind)
+	return w.applyOpPhase44(sheet, op)
 }

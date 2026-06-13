@@ -21,8 +21,10 @@ type chartSpec struct {
 	Legend struct {
 		Position string `json:"position"` // top | bottom | left | right | none
 	} `json:"legend"`
-	Width  uint `json:"width"`
-	Height uint `json:"height"`
+	XAxisTitle string `json:"xAxisTitle"`
+	YAxisTitle string `json:"yAxisTitle"`
+	Width      uint   `json:"width"`
+	Height     uint   `json:"height"`
 }
 
 var chartTypes = map[string]excelize.ChartType{
@@ -68,6 +70,12 @@ func TranslateChart(jsonSpec string) (*excelize.Chart, error) {
 		chart.Legend.Position = spec.Legend.Position
 	default:
 		return nil, fmt.Errorf("easy-excel: unsupported legend position %q", spec.Legend.Position)
+	}
+	if spec.XAxisTitle != "" {
+		chart.XAxis.Title = []excelize.RichTextRun{{Text: spec.XAxisTitle}}
+	}
+	if spec.YAxisTitle != "" {
+		chart.YAxis.Title = []excelize.RichTextRun{{Text: spec.YAxisTitle}}
 	}
 	if spec.Width > 0 {
 		chart.Dimension.Width = spec.Width

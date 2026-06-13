@@ -9,6 +9,7 @@ use EasyExcel\Compat\Cell\Coordinate;
 use EasyExcel\Compat\Cell\DataType;
 use EasyExcel\Compat\Cell\Hyperlink;
 use EasyExcel\Compat\Comment;
+use EasyExcel\Compat\RichText\RichText;
 use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\Date;
 use EasyExcel\Compat\Spreadsheet;
@@ -68,6 +69,12 @@ class Worksheet
 
     public function setCellValue(string|array $coordinate, mixed $value): static
     {
+        if ($value instanceof RichText) {
+            [$col, $row] = $this->toIndexes($coordinate);
+            $this->setRichTextValue(Coordinate::stringFromColumnIndex($col) . $row, $value);
+
+            return $this;
+        }
         if (($binder = Cell::customValueBinder()) !== null) {
             [$col, $row] = $this->toIndexes($coordinate);
             $binder->bindValue(new Cell($this, Coordinate::stringFromColumnIndex($col) . $row), $value);
@@ -78,6 +85,17 @@ class Worksheet
         $this->bufferCell($row, $col, $this->bindValue($value));
 
         return $this;
+    }
+
+    /** @internal rich-text cell value (wave 4.4): queued via the extension */
+    public function setRichTextValue(string $coordinate, RichText $richText): void
+    {
+        // a plain placeholder keeps dimensions correct; the extension applies
+        // the formatted runs over it at save (COMPAT.md)
+        [$col, $row] = Coordinate::indexesFromString($coordinate);
+        $this->bufferCell($row, $col, $richText->getPlainText());
+        $this->flush();
+        Native::setRichText($this->parent->getHandle(), $this->title, $coordinate, $richText->toRunSpecs());
     }
 
     public function setCellValueByColumnAndRow(int $columnIndex, int $row, mixed $value): static
@@ -377,6 +395,8 @@ class Worksheet
 
     private string $autoFilterRange = '';
 
+    private ?AutoFilter $autoFilter = null;
+
     public function setAutoFilter(string|array $range): static
     {
         if (\is_array($range)) {
@@ -393,7 +413,7 @@ class Worksheet
 
     public function getAutoFilter(): AutoFilter
     {
-        return new AutoFilter($this);
+        return $this->autoFilter ??= new AutoFilter($this);
     }
 
     /** @internal the range set this session (loaded files are not introspected) */
@@ -585,14 +605,27 @@ class Worksheet
     }
 
     /**
-     * easy-excel native chart API; PhpSpreadsheet's chart object model is not
-     * mapped (COMPAT.md).
+     * easy-excel native chart API: a declarative spec straight to the
+     * extension (the PhpSpreadsheet Chart facade builds on this).
      *
      * @param array<string, mixed> $spec ['type','series','title','legend','width','height']
      */
     public function addNativeChart(string $cell, array $spec): static
     {
         Native::addChart($this->parent->getHandle(), $this->title, $cell, $spec);
+
+        return $this;
+    }
+
+    /** PhpSpreadsheet-compatible chart (Chart\Chart, mapped to the native spec). */
+    public function addChart(\EasyExcel\Compat\Chart\Chart $chart): static
+    {
+        Native::addChart(
+            $this->parent->getHandle(),
+            $this->title,
+            $chart->getTopLeftCell(),
+            $chart->buildSpec(),
+        );
 
         return $this;
     }

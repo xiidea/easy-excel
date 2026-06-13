@@ -78,6 +78,15 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Sheet views | `setShowGridlines`, `getSheetView()->setZoomScale/setRightToLeft`, `getTabColor()` | applied at save |
 | Print | `getHeaderFooter()` (odd/even/first headers+footers, different-first/odd-even; `&P`/`&N`/`&D`… codes pass through), `getPageMargins()` | applied at save |
 
+## Supported (Phase 4.4 — content types)
+
+| Area | API | Notes |
+|---|---|---|
+| Rich text cells | `new RichText`, `createText/createTextRun`, `Run::getFont()` (bold/italic/size/name/underline/color…), `setCellValue($coord, $richText)` | a plain placeholder keeps dimensions correct; the formatted runs apply at save (divergence 22) |
+| Memory drawings | `Worksheet\MemoryDrawing` (GD resource → PNG/JPEG/GIF, `setImageResource`, `setRenderingFunction`, size/offset, `setWorksheet`) | rendered in PHP, sent to the extension as base64 bytes; requires ext-gd |
+| Charts | the PhpSpreadsheet `Chart\*` object model: `Chart`, `DataSeries` (bar/column ±stacked, line, area, pie, doughnut, scatter, radar; bar/col direction), `DataSeriesValues`, `PlotArea`, `Legend`, `Title`, X/Y axis labels; `Worksheet::addChart` | mapped onto the native chart spec; series data sources are excelize formula strings |
+| Auto-filter rules | `getAutoFilter()->getColumn($col)->createRule()->setRule($op, $value)`, AND/OR join | column rules force the model path (FilterColumn XML); excelize doesn't hide rows automatically (divergence 23) |
+
 ## Documented divergences
 
 1. **`toArray(formatData: false)` types** — values come back from excelize as
@@ -159,6 +168,16 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     first mutation following a save of a streamed workbook triggers a
     serialize-and-reopen (correct, O(file size)). Without it the edit would
     be lost; save-then-edit-then-save flows now round-trip.
+22. **Rich text applies at save** — a rich-text cell value buffers its plain
+    text (so dimensions and `getValue()` are correct mid-write) and the
+    formatted runs are applied to the model at save. Setting a rich-text
+    value then overwriting the same cell with a plain value across the
+    stream boundary is not ordering-guaranteed.
+23. **Auto-filter doesn't hide rows** — like excelize (and the OOXML format),
+    setting a column rule records the criteria but does not hide
+    non-matching rows; Excel re-applies the filter on open. PhpSpreadsheet
+    behaves the same. Column rules also accept at most two clauses joined by
+    AND/OR (the OOXML custom-filter limit).
 
 ## Not yet supported (throws a clear exception)
 

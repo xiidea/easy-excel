@@ -496,6 +496,21 @@ corresponding MISSING.md entries deleted.
 when installed), the 63 missing formula functions (upstream excelize work —
 track there), PHP callbacks inside per-cell hot paths.
 
+> **Wave 4.4 outcome (2026-06-13):** all four items shipped, completing
+> Phase 4. Rich-text cell values queue runs (with per-run fonts reusing the
+> font translator) applied at save over a buffered plain placeholder;
+> `MemoryDrawing` renders the GD resource to PNG in PHP and ships base64
+> bytes through `AddPictureFromBytes`; the full PhpSpreadsheet `Chart\*`
+> object model (`Chart`/`DataSeries`/`DataSeriesValues`/`PlotArea`/`Legend`/
+> `Title` + axis labels) maps onto the native chart spec —
+> bar/col±stacked/line/area/pie/doughnut/scatter/radar; auto-filter column
+> rules build excelize filter expressions (`getColumn()->createRule()`),
+> forcing the model path so the FilterColumn XML is written. 3 bridge
+> functions added (55 exports). Verified in Docker: 5 new Go tests, 7 new
+> shim tests (88 total), smoke extended with a rich-text/drawing/chart/
+> filter workbook — SMOKE PASS. **MISSING.md now lists only by-design
+> exclusions.**
+
 ---
 
 ## 14. Open questions for approval

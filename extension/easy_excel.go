@@ -642,6 +642,33 @@ func easy_excel_page_margins(handle int64, sheet *C.zend_string, marginsJson *C.
 	return errOnly(wb.SetPageMargins(goStr(sheet), goStr(marginsJson)))
 }
 
+//export_php:function easy_excel_set_rich_text(int $handle, string $sheet, string $cell, string $runsJson): ?string
+func easy_excel_set_rich_text(handle int64, sheet *C.zend_string, cell *C.zend_string, runsJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetRichText(goStr(sheet), goStr(cell), goStr(runsJson)))
+}
+
+//export_php:function easy_excel_add_image_bytes(int $handle, string $sheet, string $cell, string $imageJson): ?string
+func easy_excel_add_image_bytes(handle int64, sheet *C.zend_string, cell *C.zend_string, imageJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.AddImageBytes(goStr(sheet), goStr(cell), goStr(imageJson)))
+}
+
+//export_php:function easy_excel_auto_filter_columns(int $handle, string $sheet, string $range, string $columnsJson): ?string
+func easy_excel_auto_filter_columns(handle int64, sheet *C.zend_string, ref *C.zend_string, columnsJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.AutoFilterWithColumns(goStr(sheet), goStr(ref), goStr(columnsJson)))
+}
+
 //export_php:function easy_excel_save_csv(int $handle, string $path, string $sheet, string $delimiter, bool $crlf, bool $bom, bool $guardFormulas): ?string
 func easy_excel_save_csv(handle int64, path *C.zend_string, sheet *C.zend_string, delimiter *C.zend_string, crlf bool, bom bool, guard bool) unsafe.Pointer {
 	wb, err := workbook(handle)

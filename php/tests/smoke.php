@@ -318,6 +318,57 @@ check($copy9->getCell('A1')->getValue() === 'src' && $s9->getIndex($front) === 0
 $s9->disconnectWorksheets();
 @\unlink($w43);
 
+// --- wave 4.4: rich text, memory drawing, chart, auto-filter column rules --------
+$s10 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws10 = $s10->getActiveSheet();
+$ws10->fromArray([['Region', 'Sales'], ['East', 2500], ['West', 1200], ['East', 900]]);
+
+$rich = new \PhpOffice\PhpSpreadsheet\RichText\RichText();
+$rich->createText('Total: ');
+$rich->createTextRun('42')->getFont()->setBold(true);
+$ws10->setCellValue('D1', $rich);
+
+if (\function_exists('imagecreatetruecolor')) {
+    $img = \imagecreatetruecolor(16, 8);
+    $mem = new \PhpOffice\PhpSpreadsheet\Worksheet\MemoryDrawing();
+    $mem->setName('px')->setImageResource($img)->setCoordinates('F1')->setWidth(32);
+    $mem->setWorksheet($ws10);
+}
+
+$values = [new \PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues('Number', 'Worksheet!$B$2:$B$4', null, 3)];
+$categories = [new \PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues('String', 'Worksheet!$A$2:$A$4', null, 3)];
+$labels = [new \PhpOffice\PhpSpreadsheet\Chart\DataSeriesValues('String', 'Worksheet!$B$1', null, 1)];
+$series = new \PhpOffice\PhpSpreadsheet\Chart\DataSeries(
+    \PhpOffice\PhpSpreadsheet\Chart\DataSeries::TYPE_BARCHART,
+    \PhpOffice\PhpSpreadsheet\Chart\DataSeries::GROUPING_CLUSTERED,
+    [0], $labels, $categories, $values
+);
+$plotArea = new \PhpOffice\PhpSpreadsheet\Chart\PlotArea(null, [$series]);
+$chart = new \PhpOffice\PhpSpreadsheet\Chart\Chart(
+    'sales', new \PhpOffice\PhpSpreadsheet\Chart\Title('Sales by Region'),
+    new \PhpOffice\PhpSpreadsheet\Chart\Legend(\PhpOffice\PhpSpreadsheet\Chart\Legend::POSITION_BOTTOM),
+    $plotArea
+);
+$chart->setTopLeftPosition('H1');
+$ws10->addChart($chart);
+
+$ws10->getAutoFilter()->setRange('A1:B4');
+$ws10->getAutoFilter()->getColumn('A')->createRule()->setRule(
+    \PhpOffice\PhpSpreadsheet\Worksheet\AutoFilter\Column\Rule::AUTOFILTER_COLUMN_RULE_EQUAL, 'East'
+);
+
+$w44 = \sys_get_temp_dir() . '/smoke-w44.xlsx';
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s10, 'Xlsx')->save($w44);
+$s10->disconnectWorksheets();
+check(\is_file($w44) && \filesize($w44) > 3000, 'wave-4.4 workbook saved (' . \filesize($w44) . ' bytes)');
+
+$r10 = \PhpOffice\PhpSpreadsheet\IOFactory::load($w44);
+$rs10 = $r10->getActiveSheet();
+check($rs10->getCell('D1')->getValue() === 'Total: 42', 'rich text plain value round-trips');
+check($rs10->getCell('B2')->getValue() === 2500.0, 'data intact alongside chart/filter');
+$r10->disconnectWorksheets();
+@\unlink($w44);
+
 // --- csv + load control surface ------------------------------------------------
 $s2 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
 $s2->getActiveSheet()->fromArray([['a', '-x', 'b,c']]);

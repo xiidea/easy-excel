@@ -56,6 +56,8 @@ const (
 	opSheetView
 	opHeaderFooter
 	opMargins
+	opRichText
+	opAutoFilterCols
 )
 
 type pendingOp struct {

@@ -162,10 +162,11 @@ return [
         T::same('0.00', EasyExcelFake::calls('set_number_format')[0][1][3]);
     },
 
-    'richtext: run formatting raises a clear unsupported error' => function (): void {
+    'richtext: comment run exposes a font (wave 4.4)' => function (): void {
         $s = new Spreadsheet();
         $run = $s->getActiveSheet()->getComment('A1')->getText()->createTextRun('x');
-        T::throws(\EasyExcel\Compat\Exception::class, static fn () => $run->getFont());
+        $run->getFont()->setBold(true);
+        T::same('x', $run->getText());
     },
 
     'aliases: phase-2 classes resolve via bootstrap' => function (): void {
