@@ -560,6 +560,88 @@ func easy_excel_set_default_style(handle int64, styleJson *C.zend_string) unsafe
 	return errOnly(wb.SetDefaultStyle(goStr(styleJson)))
 }
 
+//export_php:function easy_excel_insert_rows(int $handle, string $sheet, int $row, int $count): ?string
+func easy_excel_insert_rows(handle int64, sheet *C.zend_string, row int64, count int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.InsertRows(goStr(sheet), int(row), int(count)))
+}
+
+//export_php:function easy_excel_remove_rows(int $handle, string $sheet, int $row, int $count): ?string
+func easy_excel_remove_rows(handle int64, sheet *C.zend_string, row int64, count int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.RemoveRows(goStr(sheet), int(row), int(count)))
+}
+
+//export_php:function easy_excel_insert_cols(int $handle, string $sheet, int $col, int $count): ?string
+func easy_excel_insert_cols(handle int64, sheet *C.zend_string, col int64, count int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.InsertCols(goStr(sheet), int(col), int(count)))
+}
+
+//export_php:function easy_excel_remove_cols(int $handle, string $sheet, int $col, int $count): ?string
+func easy_excel_remove_cols(handle int64, sheet *C.zend_string, col int64, count int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.RemoveCols(goStr(sheet), int(col), int(count)))
+}
+
+//export_php:function easy_excel_move_sheet(int $handle, string $sheet, int $index): ?string
+func easy_excel_move_sheet(handle int64, sheet *C.zend_string, index int64) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.MoveSheetTo(goStr(sheet), int(index)))
+}
+
+//export_php:function easy_excel_copy_sheet(int $handle, string $from, string $newName): array
+func easy_excel_copy_sheet(handle int64, from *C.zend_string, newName *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return pair(nil, err)
+	}
+	idx, err := wb.CopySheetTo(goStr(from), goStr(newName))
+	return pair(int64(idx), err)
+}
+
+//export_php:function easy_excel_sheet_view(int $handle, string $sheet, string $viewJson): ?string
+func easy_excel_sheet_view(handle int64, sheet *C.zend_string, viewJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetSheetView(goStr(sheet), goStr(viewJson)))
+}
+
+//export_php:function easy_excel_header_footer(int $handle, string $sheet, string $hfJson): ?string
+func easy_excel_header_footer(handle int64, sheet *C.zend_string, hfJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetHeaderFooter(goStr(sheet), goStr(hfJson)))
+}
+
+//export_php:function easy_excel_page_margins(int $handle, string $sheet, string $marginsJson): ?string
+func easy_excel_page_margins(handle int64, sheet *C.zend_string, marginsJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetPageMargins(goStr(sheet), goStr(marginsJson)))
+}
+
 //export_php:function easy_excel_save_csv(int $handle, string $path, string $sheet, string $delimiter, bool $crlf, bool $bom, bool $guardFormulas): ?string
 func easy_excel_save_csv(handle int64, path *C.zend_string, sheet *C.zend_string, delimiter *C.zend_string, crlf bool, bom bool, guard bool) unsafe.Pointer {
 	wb, err := workbook(handle)

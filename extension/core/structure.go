@@ -53,6 +53,9 @@ const (
 	opProtect
 	opChart
 	opUnmerge
+	opSheetView
+	opHeaderFooter
+	opMargins
 )
 
 type pendingOp struct {
@@ -199,6 +202,9 @@ func (w *Workbook) applySpecLocked(sheet string, st *sheetState, ref string, spe
 		st.styleLog = append(st.styleLog, e)
 		return nil
 	}
+	if err := w.mutable(); err != nil {
+		return err
+	}
 	st.styleLog = append(st.styleLog, e)
 	return w.applyStyleEntry(sheet, st, len(st.styleLog)-1)
 }
@@ -221,6 +227,9 @@ func (w *Workbook) SetColWidth(sheet string, c1, c2 int, width float64) error {
 		st.preWidths = append(st.preWidths, colWidthOp{c1: c1, c2: c2, width: width})
 		return nil
 	}
+	if err := w.mutable(); err != nil {
+		return err
+	}
 	return w.fSetColWidth(sheet, colWidthOp{c1: c1, c2: c2, width: width})
 }
 
@@ -242,6 +251,9 @@ func (w *Workbook) SetRowHeight(sheet string, row int, height float64) error {
 		return err
 	}
 	if st.random() {
+		if err := w.mutable(); err != nil {
+			return err
+		}
 		return w.f.SetRowHeight(sheet, row, height)
 	}
 	if st.rowHeights == nil {
@@ -274,6 +286,9 @@ func (w *Workbook) FreezePanes(sheet, topLeft string) error {
 	if !st.random() {
 		st.prePanes = panes
 		return nil
+	}
+	if err := w.mutable(); err != nil {
+		return err
 	}
 	return w.f.SetPanes(sheet, panes)
 }
@@ -355,6 +370,9 @@ func (w *Workbook) queueOp(sheet string, op pendingOp) error {
 		return err
 	}
 	if st.random() {
+		if err := w.mutable(); err != nil {
+			return err
+		}
 		return w.applyOp(sheet, op)
 	}
 	st.pending = append(st.pending, op)

@@ -12,6 +12,7 @@ use EasyExcel\Compat\Comment;
 use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\Date;
 use EasyExcel\Compat\Spreadsheet;
+use EasyExcel\Compat\Style\Color;
 use EasyExcel\Compat\Style\Style;
 use EasyExcel\Native;
 
@@ -478,6 +479,95 @@ class Worksheet
     public function getProtection(): Protection
     {
         return $this->protection ??= new Protection($this);
+    }
+
+    // --- structure editing (wave 4.3) ----------------------------------------
+
+    public function insertNewRowBefore(int $before, int $count = 1): static
+    {
+        $this->flush();
+        Native::insertRows($this->parent->getHandle(), $this->title, $before, $count);
+
+        return $this;
+    }
+
+    public function removeRow(int $row, int $count = 1): static
+    {
+        $this->flush();
+        Native::removeRows($this->parent->getHandle(), $this->title, $row, $count);
+
+        return $this;
+    }
+
+    public function insertNewColumnBefore(string $before, int $count = 1): static
+    {
+        $this->flush();
+        Native::insertCols($this->parent->getHandle(), $this->title, Coordinate::columnIndexFromString($before), $count);
+
+        return $this;
+    }
+
+    public function insertNewColumnBeforeByIndex(int $beforeColumnIndex, int $count = 1): static
+    {
+        $this->flush();
+        Native::insertCols($this->parent->getHandle(), $this->title, $beforeColumnIndex, $count);
+
+        return $this;
+    }
+
+    public function removeColumn(string $column, int $count = 1): static
+    {
+        $this->flush();
+        Native::removeCols($this->parent->getHandle(), $this->title, Coordinate::columnIndexFromString($column), $count);
+
+        return $this;
+    }
+
+    public function removeColumnByIndex(int $columnIndex, int $count = 1): static
+    {
+        $this->flush();
+        Native::removeCols($this->parent->getHandle(), $this->title, $columnIndex, $count);
+
+        return $this;
+    }
+
+    // --- sheet view, headers/footers, margins (wave 4.3) -----------------------
+
+    private ?SheetView $sheetView = null;
+
+    public function getSheetView(): SheetView
+    {
+        return $this->sheetView ??= new SheetView($this);
+    }
+
+    public function setShowGridlines(bool $show): static
+    {
+        $this->getSheetView()->pushExtra('showGridlines', $show);
+
+        return $this;
+    }
+
+    private ?Color $tabColor = null;
+
+    public function getTabColor(): Color
+    {
+        return ($this->tabColor ??= new Color())->bind(
+            fn (string $argb) => $this->getSheetView()->pushExtra('tabColor', \substr($argb, 2))
+        );
+    }
+
+    private ?HeaderFooter $headerFooter = null;
+
+    public function getHeaderFooter(): HeaderFooter
+    {
+        return $this->headerFooter ??= new HeaderFooter($this);
+    }
+
+    private ?PageMargins $pageMargins = null;
+
+    public function getPageMargins(): PageMargins
+    {
+        return $this->pageMargins ??= new PageMargins($this);
     }
 
     public function setDataValidation(string $range, ?\EasyExcel\Compat\Cell\DataValidation $dataValidation): static

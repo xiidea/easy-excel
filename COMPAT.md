@@ -69,6 +69,15 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Default style | `Spreadsheet::getDefaultStyle()` | layered under every style fold; untouched cells get it via a full-width column style (streams through the StreamWriter) |
 | Introspection | `Cell::getDataValidation()` hydrates covering rules, `getConditionalStyles()` falls back to the file's rules, `Spreadsheet::getDefinedNames()`, `Worksheet::getAutoFilter()` (session range) | validations/conditionals on streaming sheets are answered from the pending queue |
 
+## Supported (Phase 4.3 — structure editing)
+
+| Area | API | Notes |
+|---|---|---|
+| Rows/columns | `insertNewRowBefore`, `removeRow`, `insertNewColumnBefore(+ByIndex)`, `removeColumn(+ByIndex)` | random-access ops: a streaming workbook degrades first (queued styles replay before the shift, so coordinates stay valid); excelize adjusts formulas and refs |
+| Sheets | `createSheet($index)` at arbitrary positions; `Spreadsheet::copySheet($source, $new)` (easy-excel extra — PhpSpreadsheet's `clone` idiom is not supported) | copy duplicates values, styles and structure |
+| Sheet views | `setShowGridlines`, `getSheetView()->setZoomScale/setRightToLeft`, `getTabColor()` | applied at save |
+| Print | `getHeaderFooter()` (odd/even/first headers+footers, different-first/odd-even; `&P`/`&N`/`&D`… codes pass through), `getPageMargins()` | applied at save |
+
 ## Documented divergences
 
 1. **`toArray(formatData: false)` types** — values come back from excelize as
@@ -145,6 +154,11 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     excelize supports discrete shading directions, so the angle buckets to
     the nearest of horizontal/vertical/diagonal-up/diagonal-down (path
     gradients → from-center).
+21. **Write-after-save reopens the workbook** (fixed in 4.3) — excelize
+    silently discards model edits made after a StreamWriter flush, so the
+    first mutation following a save of a streamed workbook triggers a
+    serialize-and-reopen (correct, O(file size)). Without it the edit would
+    be lost; save-then-edit-then-save flows now round-trip.
 
 ## Not yet supported (throws a clear exception)
 

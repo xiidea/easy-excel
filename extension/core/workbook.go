@@ -82,6 +82,7 @@ type Workbook struct {
 	styles      styleInterner
 	estBytes    int64
 	degraded    bool
+	needsReopen bool // streams were flushed by a save; model edits need a reopen
 	closed      bool
 }
 
@@ -513,11 +514,17 @@ func (w *Workbook) setCellLocked(sheet, axis string, c compat.Cell) error {
 // ensureRandom leaves streaming mode for the whole workbook. If any rows were
 // streamed the workbook is serialized to memory and reopened (the one-time
 // documented de-optimization, PLAN.md §4.2); otherwise it is a free flag flip.
+// A workbook whose streams were flushed by an earlier save also reopens:
+// excelize silently discards model edits made after a StreamWriter flush, so
+// post-save mutations need the real model back (wave 4.3 finding).
 func (w *Workbook) ensureRandom(sheet string, st *sheetState) error {
 	if !st.eligible && st.sw == nil {
+		if w.needsReopen {
+			return w.reopenFlushed()
+		}
 		return nil
 	}
-	anyStreamed := false
+	anyStreamed := w.needsReopen
 	for _, s := range w.sheets {
 		if s.sw != nil {
 			anyStreamed = true
@@ -529,6 +536,15 @@ func (w *Workbook) ensureRandom(sheet string, st *sheetState) error {
 		}
 		return w.replayAll()
 	}
+	for _, s := range w.sheets {
+		s.eligible = false
+	}
+	return w.reopenFlushed()
+}
+
+// reopenFlushed serializes the workbook (including stream temp data) and
+// reopens it as a real in-memory model, then replays queued work.
+func (w *Workbook) reopenFlushed() error {
 	if err := w.gate.ReserveMemory(w.estBytes); err != nil {
 		return err
 	}
@@ -560,7 +576,18 @@ func (w *Workbook) ensureRandom(sheet string, st *sheetState) error {
 	w.f = f
 	w.styles.reset()
 	w.degraded = true
+	w.needsReopen = false
 	return w.replayAll()
+}
+
+// mutable prepares the workbook for direct model mutation: after a save
+// flushed stream writers, the model must be reopened first or excelize
+// drops the edit silently.
+func (w *Workbook) mutable() error {
+	if w.needsReopen {
+		return w.reopenFlushed()
+	}
+	return nil
 }
 
 // ensureRandomAll leaves streaming mode for every sheet and replays queued
@@ -805,6 +832,9 @@ func (w *Workbook) MergeCells(sheet, ref string) error {
 		st.preMerges = append(st.preMerges, [2]string{tl, br})
 		return nil
 	}
+	if err := w.mutable(); err != nil {
+		return err
+	}
 	return w.f.MergeCell(sheet, tl, br)
 }
 
@@ -986,6 +1016,9 @@ func (w *Workbook) flushStreams() error {
 				return err
 			}
 			st.sw = nil
+			// post-flush, excelize discards model edits to this sheet:
+			// the next mutation must reopen first (see mutable())
+			w.needsReopen = true
 		}
 		// flushed sheets can no longer accept stream rows
 		st.eligible = false

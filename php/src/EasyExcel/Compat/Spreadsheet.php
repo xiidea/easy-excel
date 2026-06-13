@@ -86,12 +86,28 @@ class Spreadsheet
 
     public function createSheet(?int $sheetIndex = null): Worksheet
     {
-        if ($sheetIndex !== null && $sheetIndex !== \count($this->worksheets)) {
-            throw new Exception('easy-excel: inserting sheets at arbitrary positions is not supported yet (COMPAT.md)');
-        }
         $name = $this->nextSheetName();
         Native::addSheet($this->getHandle(), $name);
         $ws = new Worksheet($this, $name);
+        if ($sheetIndex === null || $sheetIndex >= \count($this->worksheets)) {
+            $this->worksheets[] = $ws;
+        } else {
+            Native::moveSheet($this->getHandle(), $name, $sheetIndex);
+            \array_splice($this->worksheets, $sheetIndex, 0, [$ws]);
+        }
+
+        return $ws;
+    }
+
+    /**
+     * easy-excel extra: duplicates a sheet (values, styles, structure) under
+     * a new name, appended at the end. PhpSpreadsheet's clone idiom is not
+     * supported (COMPAT.md).
+     */
+    public function copySheet(string $sourceTitle, string $newTitle): Worksheet
+    {
+        Native::copySheet($this->getHandle(), $sourceTitle, $newTitle);
+        $ws = new Worksheet($this, $newTitle);
         $this->worksheets[] = $ws;
 
         return $ws;

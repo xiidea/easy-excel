@@ -190,6 +190,9 @@ func (w *Workbook) SetDefaultStyle(jsonSpec string) error {
 	w.defaultSpec = spec
 	for name, st := range w.sheets {
 		if st.random() {
+			if err := w.mutable(); err != nil {
+				return err
+			}
 			if err := w.applyDefaultColStyle(name); err != nil {
 				return err
 			}

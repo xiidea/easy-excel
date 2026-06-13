@@ -282,6 +282,54 @@ final class Native
         self::check(\easy_excel_set_default_style($handle, \json_encode($spec, \JSON_THROW_ON_ERROR)));
     }
 
+    public static function insertRows(int $handle, string $sheet, int $row, int $count): void
+    {
+        self::check(\easy_excel_insert_rows($handle, $sheet, $row, $count));
+    }
+
+    public static function removeRows(int $handle, string $sheet, int $row, int $count): void
+    {
+        self::check(\easy_excel_remove_rows($handle, $sheet, $row, $count));
+    }
+
+    public static function insertCols(int $handle, string $sheet, int $col, int $count): void
+    {
+        self::check(\easy_excel_insert_cols($handle, $sheet, $col, $count));
+    }
+
+    public static function removeCols(int $handle, string $sheet, int $col, int $count): void
+    {
+        self::check(\easy_excel_remove_cols($handle, $sheet, $col, $count));
+    }
+
+    public static function moveSheet(int $handle, string $sheet, int $index): void
+    {
+        self::check(\easy_excel_move_sheet($handle, $sheet, $index));
+    }
+
+    public static function copySheet(int $handle, string $from, string $newName): int
+    {
+        return (int) self::unwrap(\easy_excel_copy_sheet($handle, $from, $newName));
+    }
+
+    /** @param array<string, mixed> $spec showGridlines/zoomScale/rightToLeft/tabColor */
+    public static function sheetView(int $handle, string $sheet, array $spec): void
+    {
+        self::check(\easy_excel_sheet_view($handle, $sheet, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array<string, mixed> $spec odd/even/first headers and footers */
+    public static function headerFooter(int $handle, string $sheet, array $spec): void
+    {
+        self::check(\easy_excel_header_footer($handle, $sheet, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array<string, float> $spec inches; negative = leave unchanged */
+    public static function pageMargins(int $handle, string $sheet, array $spec): void
+    {
+        self::check(\easy_excel_page_margins($handle, $sheet, \json_encode($spec, \JSON_THROW_ON_ERROR)));
+    }
+
     public static function saveCsv(
         int $handle,
         string $path,

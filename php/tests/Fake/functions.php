@@ -548,6 +548,126 @@ function easy_excel_set_default_style(int $handle, string $styleJson): ?string
     return null;
 }
 
+function easy_excel_insert_rows(int $handle, string $sheet, int $row, int $count): ?string
+{
+    EasyExcelFake::$log[] = ['insert_rows', [$handle, $sheet, $row, $count]];
+    $s = &EasyExcelFake::sheet($handle, $sheet);
+    $cells = [];
+    foreach ($s['cells'] as $r => $cols) {
+        $cells[$r >= $row ? $r + $count : $r] = $cols;
+    }
+    $s['cells'] = $cells;
+    $s['maxRow'] += $count;
+
+    return null;
+}
+
+function easy_excel_remove_rows(int $handle, string $sheet, int $row, int $count): ?string
+{
+    EasyExcelFake::$log[] = ['remove_rows', [$handle, $sheet, $row, $count]];
+    $s = &EasyExcelFake::sheet($handle, $sheet);
+    $cells = [];
+    foreach ($s['cells'] as $r => $cols) {
+        if ($r >= $row && $r < $row + $count) {
+            continue;
+        }
+        $cells[$r >= $row + $count ? $r - $count : $r] = $cols;
+    }
+    $s['cells'] = $cells;
+    $s['maxRow'] = \max(0, $s['maxRow'] - $count);
+
+    return null;
+}
+
+function easy_excel_insert_cols(int $handle, string $sheet, int $col, int $count): ?string
+{
+    EasyExcelFake::$log[] = ['insert_cols', [$handle, $sheet, $col, $count]];
+    $s = &EasyExcelFake::sheet($handle, $sheet);
+    foreach ($s['cells'] as $r => $cols) {
+        $shifted = [];
+        foreach ($cols as $c => $v) {
+            $shifted[$c >= $col ? $c + $count : $c] = $v;
+        }
+        $s['cells'][$r] = $shifted;
+    }
+    $s['maxCol'] += $count;
+
+    return null;
+}
+
+function easy_excel_remove_cols(int $handle, string $sheet, int $col, int $count): ?string
+{
+    EasyExcelFake::$log[] = ['remove_cols', [$handle, $sheet, $col, $count]];
+    $s = &EasyExcelFake::sheet($handle, $sheet);
+    foreach ($s['cells'] as $r => $cols) {
+        $shifted = [];
+        foreach ($cols as $c => $v) {
+            if ($c >= $col && $c < $col + $count) {
+                continue;
+            }
+            $shifted[$c >= $col + $count ? $c - $count : $c] = $v;
+        }
+        $s['cells'][$r] = $shifted;
+    }
+    $s['maxCol'] = \max(0, $s['maxCol'] - $count);
+
+    return null;
+}
+
+function easy_excel_move_sheet(int $handle, string $sheet, int $index): ?string
+{
+    EasyExcelFake::$log[] = ['move_sheet', [$handle, $sheet, $index]];
+    $wb = &EasyExcelFake::$store[$handle];
+    $order = \array_values(\array_diff($wb['order'], [$sheet]));
+    \array_splice($order, $index, 0, [$sheet]);
+    $wb['order'] = $order;
+
+    return null;
+}
+
+function easy_excel_copy_sheet(int $handle, string $from, string $newName): array
+{
+    EasyExcelFake::$log[] = ['copy_sheet', [$handle, $from, $newName]];
+    $wb = &EasyExcelFake::$store[$handle];
+    $wb['sheets'][$newName] = $wb['sheets'][$from];
+    $wb['order'][] = $newName;
+
+    return [\count($wb['order']) - 1, null];
+}
+
+function easy_excel_sheet_view(int $handle, string $sheet, string $viewJson): ?string
+{
+    $spec = \json_decode($viewJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: sheet view spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['sheet_view', [$handle, $sheet, $spec]];
+
+    return null;
+}
+
+function easy_excel_header_footer(int $handle, string $sheet, string $hfJson): ?string
+{
+    $spec = \json_decode($hfJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: header/footer spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['header_footer', [$handle, $sheet, $spec]];
+
+    return null;
+}
+
+function easy_excel_page_margins(int $handle, string $sheet, string $marginsJson): ?string
+{
+    $spec = \json_decode($marginsJson, true);
+    if (!\is_array($spec)) {
+        return 'fake: margins spec is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['page_margins', [$handle, $sheet, $spec]];
+
+    return null;
+}
+
 function easy_excel_stats(): array
 {
     return [\count(EasyExcelFake::$store), 0];

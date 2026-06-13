@@ -86,6 +86,9 @@ func (w *Workbook) UnmergeCells(sheet, ref string) error {
 		return nil
 	}
 	if st.random() {
+		if err := w.mutable(); err != nil {
+			return err
+		}
 		return w.f.UnmergeCell(sheet, tl, br)
 	}
 	st.pending = append(st.pending, pendingOp{kind: opUnmerge, ref: tl + ":" + br})

@@ -279,6 +279,45 @@ check($rs7->getStyle('A1')->getFont()->getBold() === true
 $r7->disconnectWorksheets();
 @\unlink($w42);
 
+// --- wave 4.3: structure editing, views, write-after-save ------------------------
+$s8 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws8 = $s8->getActiveSheet();
+$ws8->fromArray([['r1'], ['r2'], ['r3']]);
+$ws8->insertNewRowBefore(2, 1);
+$ws8->setCellValue('A2', 'inserted');
+$ws8->removeColumnByIndex(2); // no-op width-wise, exercises the path
+$ws8->setShowGridlines(false);
+$ws8->getSheetView()->setZoomScale(80);
+$ws8->getTabColor()->setRGB('00B050');
+$ws8->getHeaderFooter()->setOddFooter('&CPage &P of &N');
+$ws8->getPageMargins()->setTop(1.1)->setBottom(1.1);
+
+$w43 = \sys_get_temp_dir() . '/smoke-w43.xlsx';
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s8, 'Xlsx')->save($w43);
+
+// post-save mutation must not be silently dropped (wave-4.3 finding)
+$ws8->setCellValue('A1', 'EDITED');
+\PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s8, 'Xlsx')->save($w43);
+$s8->disconnectWorksheets();
+
+$r8 = \PhpOffice\PhpSpreadsheet\IOFactory::load($w43);
+$rs8 = $r8->getActiveSheet();
+check($rs8->getCell('A1')->getValue() === 'EDITED', 'write-after-save persisted');
+check($rs8->getCell('A2')->getValue() === 'inserted'
+    && $rs8->getCell('A3')->getValue() === 'r2', 'row insertion shifted data');
+$r8->disconnectWorksheets();
+
+$s9 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+$ws9 = $s9->getActiveSheet();
+$ws9->setCellValue('A1', 'src');
+$ws9->flush();
+$copy9 = $s9->copySheet('Worksheet', 'Backup');
+$front = $s9->createSheet(0);
+check($copy9->getCell('A1')->getValue() === 'src' && $s9->getIndex($front) === 0,
+    'sheet copy + createSheet(index)');
+$s9->disconnectWorksheets();
+@\unlink($w43);
+
 // --- csv + load control surface ------------------------------------------------
 $s2 = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
 $s2->getActiveSheet()->fromArray([['a', '-x', 'b,c']]);

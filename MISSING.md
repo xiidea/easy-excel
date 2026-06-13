@@ -13,6 +13,12 @@ deleted here.
 
 ## Found by the ERP report probe (`data/public/index.php`)
 
+Closed by wave 4.3 (2026-06-13): insert/remove rows and columns,
+`createSheet($index)`, sheet copy (`Spreadsheet::copySheet` extra), sheet
+views (gridlines/zoom/RTL/tab color), headers/footers, page margins — plus
+a correctness fix: post-save mutations were silently dropped by excelize
+on stream-flushed sheets; they now reopen first (COMPAT.md §21).
+
 Closed by wave 4.2 (2026-06-13): `getDefaultStyle()`, row/column iterators,
 `IReadFilter`, style read-back from loaded files + `duplicateStyle`,
 validation/conditional/defined-name/auto-filter getters.
@@ -31,12 +37,9 @@ and calculation-cache no-ops.
 - Auto-filter **column rule** introspection (range getter landed in 4.2)
 
 **Structure editing**
-- `insertNewRowBefore` / `removeRow` / `insertNewColumnBefore` /
-  `removeColumn`
 - `removeConditionalStyles`
-- Sheet copy/clone (`Spreadsheet::addExternalSheet`, `Worksheet::copy`),
-  `createSheet($index)` at arbitrary positions
-- Sheet views: gridline toggle, tab color, zoom, right-to-left
+- `clone $sheet` / `Spreadsheet::addExternalSheet` (use
+  `Spreadsheet::copySheet` instead)
 
 **Content types**
 - `RichText` as a **cell value** (multi-format runs in one cell; comments
@@ -56,7 +59,6 @@ and calculation-cache no-ops.
 **Misc**
 - `Calculation` array-formula toggles (the cache controls are accepted
   no-ops since wave 4.1) — calculation is delegated to excelize
-- Headers/footers, page margins, print options beyond page setup
 - Cell autofilter object model (`getAutoFilter()->setRange()`,
   column rules) — only `setAutoFilter($range)`
 

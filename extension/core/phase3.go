@@ -180,7 +180,7 @@ func (w *Workbook) applyOpPhase3(sheet string, op pendingOp) error {
 		}
 		return w.f.UnmergeCell(sheet, tl, br)
 	}
-	return fmt.Errorf("easy-excel: unknown pending op %d", op.kind)
+	return w.applyOpPhase43(sheet, op)
 }
 
 func (w *Workbook) applyImage(sheet string, op pendingOp) error {

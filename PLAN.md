@@ -469,6 +469,19 @@ corresponding MISSING.md entries deleted.
 | Sheet views: gridlines, zoom, RTL, tab color | `f.SetSheetView` / `SetSheetProps` as pending ops | S-M |
 | Headers/footers + page margins | `f.SetHeaderFooter` / `SetPageMargins` as pending ops; PhpSpreadsheet code placeholders (`&P`, `&D`…) map 1:1 | M |
 
+> **Wave 4.3 outcome (2026-06-13):** all four items shipped —
+> insert/remove rows/columns (degrade-first so queued styles replay before
+> the shift; container-patched auto-filters migrate back to the pending
+> queue), `createSheet($index)` + `Spreadsheet::copySheet` extra, sheet
+> views (gridlines/zoom/RTL/tab color), headers/footers and page margins.
+> The wave also surfaced and fixed a **latent correctness bug**: excelize
+> silently discards model edits made after a StreamWriter flush, so
+> post-save mutations on streamed workbooks were lost; every mutation path
+> now reopens the model first (`needsReopen`/`mutable()`, COMPAT.md §21).
+> 9 bridge functions added (52 exports). Verified: 6 new Go tests incl.
+> the write-after-save regression, 7 new shim tests (81 total), smoke +5
+> checks — SMOKE PASS in Docker.
+
 **Wave 4.4 — content types**
 
 | Item | Approach | Effort |
