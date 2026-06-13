@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -22,6 +23,8 @@ type docPropsSpec struct {
 	Keywords       string `json:"keywords"`
 	Category       string `json:"category"`
 	Company        string `json:"company"` // app.xml; excelize exposes no Manager field
+	Created        string `json:"created"` // RFC 3339
+	Modified       string `json:"modified"`
 }
 
 // SetDocProps writes core (and, when set, app) document properties; the
@@ -44,6 +47,8 @@ func (w *Workbook) SetDocProps(jsonSpec string) error {
 		Description:    spec.Description,
 		Keywords:       spec.Keywords,
 		Category:       spec.Category,
+		Created:        spec.Created,
+		Modified:       spec.Modified,
 	}); err != nil {
 		return err
 	}
@@ -54,6 +59,64 @@ func (w *Workbook) SetDocProps(jsonSpec string) error {
 		})
 	}
 	return nil
+}
+
+// customPropSpec is one custom document property. Type is PhpSpreadsheet's
+// single-letter code (b/i/f/d/s); Remove deletes the property.
+type customPropSpec struct {
+	Name   string `json:"name"`
+	Value  any    `json:"value"`
+	Type   string `json:"type"`
+	Remove bool   `json:"remove"`
+}
+
+// SetCustomProp writes (or removes) one custom document property.
+func (w *Workbook) SetCustomProp(jsonSpec string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return errClosed
+	}
+	var spec customPropSpec
+	if err := json.Unmarshal([]byte(jsonSpec), &spec); err != nil {
+		return fmt.Errorf("easy-excel: invalid custom property: %w", err)
+	}
+	if spec.Name == "" {
+		return fmt.Errorf("easy-excel: custom property needs a name")
+	}
+	prop := excelize.CustomProperty{Name: spec.Name}
+	if !spec.Remove {
+		prop.Value = customPropValue(spec.Value, spec.Type)
+	}
+	return w.f.SetCustomProps(prop)
+}
+
+// customPropValue coerces a JSON value to the Go type excelize stores per the
+// PhpSpreadsheet type code (JSON numbers arrive as float64).
+func customPropValue(v any, typ string) any {
+	switch typ {
+	case "b":
+		b, _ := v.(bool)
+		return b
+	case "i":
+		if f, ok := v.(float64); ok {
+			return int32(f) // excelize accepts int32, not int
+		}
+	case "f":
+		if f, ok := v.(float64); ok {
+			return f
+		}
+	case "d":
+		if s, ok := v.(string); ok {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				return t
+			}
+		}
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // UnmergeCells removes a merge. Merges queued for the StreamWriter but not

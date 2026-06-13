@@ -439,6 +439,17 @@ function easy_excel_doc_props(int $handle, string $propsJson): ?string
     return null;
 }
 
+function easy_excel_custom_prop(int $handle, string $propJson): ?string
+{
+    $prop = \json_decode($propJson, true);
+    if (!\is_array($prop)) {
+        return 'fake: custom property is not valid JSON';
+    }
+    EasyExcelFake::$log[] = ['custom_prop', [$handle, $prop]];
+
+    return null;
+}
+
 function easy_excel_unmerge_cells(int $handle, string $sheet, string $range): ?string
 {
     EasyExcelFake::$log[] = ['unmerge_cells', [$handle, $sheet, $range]];

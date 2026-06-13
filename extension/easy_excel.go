@@ -485,6 +485,15 @@ func easy_excel_doc_props(handle int64, propsJson *C.zend_string) unsafe.Pointer
 	return errOnly(wb.SetDocProps(goStr(propsJson)))
 }
 
+//export_php:function easy_excel_custom_prop(int $handle, string $propJson): ?string
+func easy_excel_custom_prop(handle int64, propJson *C.zend_string) unsafe.Pointer {
+	wb, err := workbook(handle)
+	if err != nil {
+		return errOnly(err)
+	}
+	return errOnly(wb.SetCustomProp(goStr(propJson)))
+}
+
 //export_php:function easy_excel_unmerge_cells(int $handle, string $sheet, string $range): ?string
 func easy_excel_unmerge_cells(handle int64, sheet *C.zend_string, ref *C.zend_string) unsafe.Pointer {
 	wb, err := workbook(handle)

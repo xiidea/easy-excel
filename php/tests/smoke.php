@@ -357,6 +357,13 @@ $ws10->getAutoFilter()->getColumn('A')->createRule()->setRule(
     \PhpOffice\PhpSpreadsheet\Worksheet\AutoFilter\Column\Rule::AUTOFILTER_COLUMN_RULE_EQUAL, 'East'
 );
 
+$props10 = $s10->getProperties();
+$props10->setTitle('Sales Report')->setCreator('easy-excel');
+$props10->setCustomProperty('Reviewed', true);
+$props10->setCustomProperty('Revision', 7, \PhpOffice\PhpSpreadsheet\Document\Properties::PROPERTY_TYPE_INTEGER);
+check($props10->getCustomPropertyType('Revision') === 'i'
+    && $props10->getCustomPropertyValue('Reviewed') === true, 'custom document properties');
+
 $w44 = \sys_get_temp_dir() . '/smoke-w44.xlsx';
 \PhpOffice\PhpSpreadsheet\IOFactory::createWriter($s10, 'Xlsx')->save($w44);
 $s10->disconnectWorksheets();

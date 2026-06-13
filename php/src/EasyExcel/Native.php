@@ -235,10 +235,16 @@ final class Native
         self::check(\easy_excel_save_xlsx($handle, $path, $password));
     }
 
-    /** @param array<string, string> $props title/subject/creator/lastModifiedBy/description/keywords/category/company */
+    /** @param array<string, string> $props title/subject/creator/lastModifiedBy/description/keywords/category/company/created/modified */
     public static function docProps(int $handle, array $props): void
     {
         self::check(\easy_excel_doc_props($handle, \json_encode($props, \JSON_THROW_ON_ERROR)));
+    }
+
+    /** @param array{name: string, value?: mixed, type?: string, remove?: bool} $prop */
+    public static function customProp(int $handle, array $prop): void
+    {
+        self::check(\easy_excel_custom_prop($handle, \json_encode($prop, \JSON_THROW_ON_ERROR)));
     }
 
     public static function unmergeCells(int $handle, string $sheet, string $range): void

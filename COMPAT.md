@@ -51,7 +51,7 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Area | API | Notes |
 |---|---|---|
 | Value binders | `Cell::setValueBinder/getValueBinder`, `IValueBinder`, `DefaultValueBinder` (+`dataTypeForValue`) | custom binders run in PHP before the write buffer; `fromArray` routes per cell through them (still batched); without a custom binder the bulk fast path is unchanged |
-| Document properties | `getProperties()->setTitle/setSubject/setCreator/setLastModifiedBy/setDescription/setKeywords/setCategory/setCompany` | `setManager` accepted but PHP-side only (excelize exposes no field) |
+| Document properties | `getProperties()->setTitle/setSubject/setCreator/setLastModifiedBy/setDescription/setKeywords/setCategory/setCompany/setCreated/setModified`; custom properties (`setCustomProperty/getCustomProperty*/isCustomPropertySet/removeCustomProperty`, `PROPERTY_TYPE_*` constants) | `setManager` accepted but PHP-side only (excelize exposes no field); custom props persist via the docProps/custom.xml part |
 | Print layout | `setRowsToRepeatAtTop(+ByStartAndEnd)`, `setColumnsToRepeatAtLeftByStartAndEnd`, `setPrintArea` | implemented as the reserved `_xlnm.Print_Titles` / `_xlnm.Print_Area` defined names |
 | Conditional getter | `getStyle(range)->getConditionalStyles()` | returns rules set on that exact range **this session**; loaded files are not introspected |
 | **Workbook encryption** | `Writer\Xlsx::setPassword()`, `Reader\Xlsx::setPassword()` (easy-excel extras — PhpSpreadsheet cannot encrypt xlsx) | agile encryption via excelize; encrypting disables the auto-filter container patch (filters ride the degrade) |

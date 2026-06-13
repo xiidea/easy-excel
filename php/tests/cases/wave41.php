@@ -89,6 +89,38 @@ return [
         T::same('ERP Report', $s->getProperties()->getTitle());
     },
 
+    'properties: custom properties + created/modified' => function (): void {
+        EasyExcelFake::reset();
+        $s = new Spreadsheet();
+        $props = $s->getProperties();
+        $props->setCustomProperty('Reviewed', true);
+        $props->setCustomProperty('Revision', 3, \EasyExcel\Compat\Document\Properties::PROPERTY_TYPE_INTEGER);
+        $props->setCustomProperty('Ratio', 1.5);
+        $props->setCreated('2026-06-13 10:00:00');
+
+        T::same(true, $props->isCustomPropertySet('Reviewed'));
+        T::same(3, $props->getCustomPropertyValue('Revision'));
+        T::same('i', $props->getCustomPropertyType('Revision'));
+        T::same('f', $props->getCustomPropertyType('Ratio'));
+        T::same(['Reviewed', 'Revision', 'Ratio'], $props->getCustomProperties());
+
+        $custom = EasyExcelFake::calls('custom_prop');
+        T::same('Reviewed', $custom[0][1][1]['name']);
+        T::same('b', $custom[0][1][1]['type']);
+        T::same(true, $custom[0][1][1]['value']);
+
+        $props->removeCustomProperty('Reviewed');
+        T::same(false, $props->isCustomPropertySet('Reviewed'));
+        $custom = EasyExcelFake::calls('custom_prop');
+        $last = \end($custom)[1][1];
+        T::same(true, $last['remove']);
+
+        // created reaches doc_props as an ISO timestamp
+        $docCalls = EasyExcelFake::calls('doc_props');
+        $doc = \end($docCalls)[1][1];
+        T::ok(\str_starts_with($doc['created'] ?? '', '2026-06-13T10:00:00'), 'created timestamp');
+    },
+
     'print titles and print area become reserved defined names' => function (): void {
         EasyExcelFake::reset();
         $s = new Spreadsheet();
