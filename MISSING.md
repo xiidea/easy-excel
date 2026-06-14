@@ -63,6 +63,25 @@ and calculation-cache no-ops.
   no-ops since wave 4.1) — calculation is delegated to excelize
 - Auto-filter does not hide non-matching rows (column rules are recorded;
   Excel re-applies on open — COMPAT.md §23)
+- **Pre-computed formula cache** — formula cells are written without a
+  cached `<v>` result, so spreadsheet apps that don't auto-recalculate on
+  open (some headless readers) show them blank until recalculated. Excel,
+  LibreOffice and `getCalculatedValue()` evaluate them correctly. PhpSpreadsheet
+  pre-calculates and stores the value; excelize has no recalculate-and-cache
+  step (COMPAT.md §24).
+
+## Verified against PhpSpreadsheet
+
+`data/public/index.php` is a self-verifying probe: it generates the ERP
+report through the `PhpOffice\PhpSpreadsheet\*` aliases, reloads it, and
+diffs the data table against `data/public/phpspreadsheet.xlsx` (the same
+report from real PhpSpreadsheet). Run it over HTTP (see `http-verify.sh`):
+
+```
+docker run -d -e SERVER_NAME=":80" -v $PWD/data:/app \
+  -v $PWD/php:/opt/easy-excel/php -p 8085:80 frankenphp-easy-excel
+curl http://localhost:8085/        # → REPORT TEST PASS
+```
 
 Want one of these? Open an issue at
 [xiidea/easy-excel](https://github.com/xiidea/easy-excel/issues) — gaps get

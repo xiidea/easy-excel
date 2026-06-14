@@ -85,15 +85,29 @@ class Fill
 
     public function getStartColor(): Color
     {
-        return ($this->startColor ??= new Color())->bind(
+        return ($this->startColor ??= $this->nativeColor('startColor'))->bind(
             fn (string $argb) => $this->style->mergeComponent('fill', ['startColor' => ['argb' => $argb]])
         );
     }
 
     public function getEndColor(): Color
     {
-        return ($this->endColor ??= new Color())->bind(
+        return ($this->endColor ??= $this->nativeColor('endColor'))->bind(
             fn (string $argb) => $this->style->mergeComponent('fill', ['endColor' => ['argb' => $argb]])
         );
+    }
+
+    /** local writes win; otherwise read the color back from the stylesheet */
+    private function nativeColor(string $key): Color
+    {
+        $native = $this->style->nativeComponent('fill')[$key] ?? null;
+        if (\is_array($native)) {
+            $argb = $native['argb'] ?? (isset($native['rgb']) ? 'FF' . $native['rgb'] : null);
+            if ($argb !== null) {
+                return new Color($argb);
+            }
+        }
+
+        return new Color();
     }
 }

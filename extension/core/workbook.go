@@ -630,7 +630,9 @@ func (w *Workbook) GetCell(sheet, axis string, mode GetMode) (any, error) {
 	case GetFormatted:
 		return w.f.GetCellValue(sheet, axis)
 	case GetCalculated:
-		return w.f.CalcCellValue(sheet, axis)
+		// PhpSpreadsheet's getCalculatedValue() returns the raw computed
+		// value, not the number-format-rendered string
+		return w.f.CalcCellValue(sheet, axis, excelize.Options{RawCellValue: true})
 	}
 	if formula, err := w.f.GetCellFormula(sheet, axis); err == nil && formula != "" {
 		return "=" + formula, nil
@@ -726,7 +728,12 @@ func (w *Workbook) ReadRows(sheet string, startRow, maxRows int, raw, calc bool)
 					continue
 				}
 				if formula, err := w.f.GetCellFormula(sheet, axis); err == nil && formula != "" {
-					if val, err := w.f.CalcCellValue(sheet, axis); err == nil {
+					// raw read: unformatted calc value, mirroring GetCalculated
+					var opts []excelize.Options
+					if raw {
+						opts = append(opts, excelize.Options{RawCellValue: true})
+					}
+					if val, err := w.f.CalcCellValue(sheet, axis, opts...); err == nil {
 						cols[j] = val
 					}
 				}

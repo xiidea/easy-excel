@@ -178,6 +178,16 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     non-matching rows; Excel re-applies the filter on open. PhpSpreadsheet
     behaves the same. Column rules also accept at most two clauses joined by
     AND/OR (the OOXML custom-filter limit).
+24. **No pre-computed formula cache** — formula cells are written with the
+    formula but without a cached `<v>` result (PhpSpreadsheet pre-calculates
+    and stores it). Excel, LibreOffice and `getCalculatedValue()` recompute
+    on open and display the correct value; headless readers that trust the
+    cache without recalculating see a blank until they evaluate. excelize has
+    no recalculate-and-store-all step, so this is inherent to the engine.
+25. **Image anchoring** — drawings use one-cell anchoring (fixed size, the
+    image keeps its dimensions when rows/columns resize), matching
+    PhpSpreadsheet. excelize's default two-cell anchoring (image stretches
+    with the cells) is not used.
 
 ## Not yet supported (throws a clear exception)
 

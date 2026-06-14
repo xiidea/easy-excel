@@ -273,6 +273,37 @@ func TestCalculatedReadRows(t *testing.T) {
 	}
 }
 
+func TestGetCalculatedReturnsRawNotFormatted(t *testing.T) {
+	// getCalculatedValue() returns the raw computed value, not the
+	// number-format-rendered string (PhpSpreadsheet parity)
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.WriteRows("Worksheet", 1, 1, [][]compat.Cell{
+		{{Kind: compat.Num, Num: 5250.75}, {Kind: compat.Formula, Str: "A1*2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// an accounting format that would render with commas/padding
+	if err := w.SetNumberFormat("Worksheet", "B1", `_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)`); err != nil {
+		t.Fatal(err)
+	}
+	v, err := w.GetCell("Worksheet", "B1", GetCalculated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := v.(string); s != "10501.5" {
+		t.Errorf("GetCalculated = %v, want raw 10501.5 (not the formatted string)", v)
+	}
+	// a non-formula numeric cell still renders its value
+	fv, _ := w.GetCell("Worksheet", "A1", GetFormatted)
+	if s, _ := fv.(string); s != "5250.75" {
+		t.Errorf("GetFormatted A1 = %q, want 5250.75", fv)
+	}
+}
+
 func TestValidationBadSpecFailsEagerly(t *testing.T) {
 	w, err := New(testEnv())
 	if err != nil {

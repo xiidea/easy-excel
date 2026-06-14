@@ -199,6 +199,9 @@ func (w *Workbook) applyImage(sheet string, op pendingOp) error {
 		OffsetY: spec.OffsetY,
 		ScaleX:  1,
 		ScaleY:  1,
+		// oneCell anchoring matches PhpSpreadsheet: the image keeps its size
+		// when rows/columns resize (twoCell, excelize's default, stretches it)
+		Positioning: "oneCell",
 	}
 	// in-memory drawing: base64 bytes instead of a file path
 	if spec.Data != "" {
