@@ -36,6 +36,22 @@ jobs:
           cache-from: type=gha,scope=php-test-${{ matrix.php }}
           cache-to: type=gha,scope=php-test-${{ matrix.php }},mode=max
 
+  # Diffs the public surface of a real phpoffice/phpspreadsheet against the
+  # Compat layer and fails on any new uncovered class/method/constant (gated
+  # against php/.compat-surface.json). The stage's RUN is the assertion.
+  compat-surface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Compat surface gate (vs real PhpSpreadsheet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: compat-surface
+          cache-from: type=gha,scope=compat-surface
+          cache-to: type=gha,scope=compat-surface,mode=max
+
   # Compile-verifies the bridge (extension-init + xcaddy against real PHP ZTS
   # headers), then runs the end-to-end smoke test inside the built image.
   extension-build:
