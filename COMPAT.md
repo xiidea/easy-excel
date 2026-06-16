@@ -189,6 +189,35 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     PhpSpreadsheet. excelize's default two-cell anchoring (image stretches
     with the cells) is not used.
 
+## Aliasing modes
+
+The `PhpOffice\PhpSpreadsheet\*` → `EasyExcel\Compat\*` bridge runs in one of
+three modes, chosen by `aliasMode()` (`php/src/aliasing.php`) and overridable
+with the `EASY_EXCEL_ALIAS` environment variable:
+
+| Mode | When | Behaviour |
+|---|---|---|
+| `strict` | **default when the native extension is loaded** (or `EASY_EXCEL_ALIAS=strict`/`force`) | All-or-nothing. Implemented classes resolve to Compat; any `PhpOffice\PhpSpreadsheet\*` class Compat does **not** implement throws `EasyExcel\UnsupportedApiException`. A request is served entirely by Compat or it fails — a handle-based workbook can never be mixed with a real object graph. |
+| `off` | **default when the extension is absent** (or `EASY_EXCEL_ALIAS=off`) | No aliasing; everything resolves to a real `phpoffice/phpspreadsheet` install (add it as a dependency). Use this to run on stock PhpSpreadsheet, e.g. for A/B output comparison. |
+| `fallback` | `EASY_EXCEL_ALIAS=fallback` (extension required) | Hybrid escape hatch: alias what Compat implements, defer everything else to the real package per class. Convenient for incremental adoption, but can mix object models within one request — opt in knowingly. |
+
+Strict mode throws even via a defensive `class_exists('PhpOffice\…')` probe;
+that is intentional — under all-or-nothing an uncovered class is a coverage
+gap to close (or a cue to switch the whole request to `off`/`fallback`), not
+something to paper over silently.
+
+**Surface diff (CI gate).** `php/tools/compat-surface-diff.php` reflects a real
+PhpSpreadsheet install and reports every class/method/constant Compat is
+missing. Run it against a frozen baseline so a *new* gap (e.g. a PhpSpreadsheet
+version bump adding constants) fails CI instead of surfacing at runtime:
+
+```
+composer require --dev phpoffice/phpspreadsheet
+php tools/compat-surface-diff.php --members                              # full report
+php tools/compat-surface-diff.php --baseline=.compat-surface.json        # gate (exit 1 on new gaps)
+php tools/compat-surface-diff.php --update-baseline=.compat-surface.json # bump deliberately
+```
+
 ## Not yet supported (throws a clear exception)
 
 - Gradient fills, diagonal/vertical/horizontal borders
@@ -196,8 +225,10 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
   use the native declarative API (`Worksheet::addNativeChart`) instead
 - Workbook encryption / password-protected open
 - Readers/Writers: Ods, Xls, Html, Pdf, Slk, Gnumeric — not planned for the
-  native engine; install the real `phpoffice/phpspreadsheet` alongside (the
-  alias bootstrap then defers to it) or convert externally
+  native engine. In `strict` mode (the default with the extension) these throw
+  `UnsupportedApiException`; set `EASY_EXCEL_ALIAS=off` (or `fallback`) and
+  install the real `phpoffice/phpspreadsheet` to handle them, or convert
+  externally
 - Custom value binders (`Cell::setValueBinder`), read filters with PHP
   callbacks — planned via declarative equivalents (PHP callbacks across the
   CGO boundary are the documented slow path)
