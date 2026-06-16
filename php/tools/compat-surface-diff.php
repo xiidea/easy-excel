@@ -32,8 +32,12 @@ declare(strict_types=1);
 const PS_PREFIX = 'PhpOffice\\PhpSpreadsheet\\';
 const COMPAT_PREFIX = 'EasyExcel\\Compat\\';
 
+// We reflect real PhpOffice\PhpSpreadsheet\* and EasyExcel\Compat\* side by
+// side; aliasing one onto the other would defeat the diff.
+\putenv('EASY_EXCEL_ALIAS=off');
+
 $argvRest = \array_slice($argv, 1);
-$opts = ['members' => false, 'json' => false, 'baseline' => null, 'update' => null];
+$opts = ['members' => false, 'json' => false, 'baseline' => null, 'update' => null, 'autoload' => null];
 $srcArg = null;
 foreach ($argvRest as $a) {
     if ($a === '--members') {
@@ -44,6 +48,8 @@ foreach ($argvRest as $a) {
         $opts['baseline'] = \substr($a, 11);
     } elseif (\str_starts_with($a, '--update-baseline=')) {
         $opts['update'] = \substr($a, 18);
+    } elseif (\str_starts_with($a, '--autoload=')) {
+        $opts['autoload'] = \substr($a, 11);
     } elseif (!\str_starts_with($a, '--')) {
         $srcArg = $a;
     } else {
@@ -62,18 +68,25 @@ if ($psSrc === null) {
     exit(2);
 }
 
-// Reflect real PhpSpreadsheet classes by path; load Compat via PSR-4. No
-// aliasing here — we need both namespaces resolvable side by side.
-registerPsr4(PS_PREFIX, $psSrc);
-registerPsr4(COMPAT_PREFIX, \dirname(__DIR__) . '/src/EasyExcel/Compat');
+// Prefer Composer's autoloader when present: it resolves PhpSpreadsheet, its
+// dependencies, *and* the Compat layer, so reflection sees the full surface.
+// Otherwise fall back to path-based PSR-4 for the no-Composer (local) case.
+$autoload = $opts['autoload'] ?? defaultComposerAutoload();
+if ($autoload !== null && \is_file($autoload)) {
+    require $autoload;
+} else {
+    registerPsr4(COMPAT_PREFIX, \dirname(__DIR__) . '/src/EasyExcel/Compat');
+}
+registerPsr4(PS_PREFIX, $psSrc); // path fallback if not already covered by Composer
 
 $report = buildReport($psSrc, $opts['members']);
 
 if ($opts['update'] !== null) {
-    \file_put_contents($opts['update'],
-        \json_encode($report['missingClasses'], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES) . "\n");
-    \fwrite(\STDERR, \sprintf("wrote baseline (%d missing classes) to %s\n",
-        \count($report['missingClasses']), $opts['update']));
+    $json = \json_encode($report['missingClasses'], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES) . "\n";
+    $dest = $opts['update'] === '-' ? 'php://stdout' : $opts['update'];
+    \file_put_contents($dest, $json);
+    \fwrite(\STDERR, \sprintf("baseline: %d missing classes -> %s\n",
+        \count($report['missingClasses']), $opts['update'] === '-' ? 'stdout' : $opts['update']));
     exit(0);
 }
 
@@ -110,6 +123,13 @@ function locatePhpSpreadsheet(?string $arg): ?string
     }
 
     return null;
+}
+
+function defaultComposerAutoload(): ?string
+{
+    $path = \dirname(__DIR__) . '/vendor/autoload.php';
+
+    return \is_file($path) ? $path : null;
 }
 
 function registerPsr4(string $prefix, string $baseDir): void

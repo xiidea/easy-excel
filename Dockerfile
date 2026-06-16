@@ -30,6 +30,27 @@ WORKDIR /app
 COPY php/ php/
 RUN php php/tests/run.php
 
+# --- compat surface gate ------------------------------------------------------
+# Reflects a real phpoffice/phpspreadsheet and diffs its public surface against
+# the Compat layer. compat-surface-deps installs PhpSpreadsheet; compat-surface
+# runs the diff against the committed baseline (php/.compat-surface.json) — a
+# *new* uncovered class/method/constant fails the build instead of surfacing at
+# runtime. Refresh the baseline deliberately with:
+#   docker build --target=compat-surface-deps -t cs . && \
+#   docker run --rm cs php php/tools/compat-surface-diff.php --update-baseline=- \
+#     > php/.compat-surface.json
+FROM php:${PHP_VERSION}-cli AS compat-surface-deps
+WORKDIR /app
+COPY --from=mlocati/php-extension-installer:latest /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions gd zip intl xsl mbstring
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+ENV EASY_EXCEL_ALIAS=off COMPOSER_ALLOW_SUPERUSER=1
+COPY php/ php/
+RUN composer --working-dir=php require --no-interaction --no-progress --no-audit phpoffice/phpspreadsheet
+
+FROM compat-surface-deps AS compat-surface
+RUN php php/tools/compat-surface-diff.php --members --baseline=php/.compat-surface.json
+
 # --- extension generation -------------------------------------------------------
 
 FROM dunglas/frankenphp:builder-php${PHP_VERSION} AS generate
@@ -74,3 +95,28 @@ COPY php/ /opt/easy-excel/php/
 LABEL org.opencontainers.image.title="frankenphp-easy-excel" \
       org.opencontainers.image.description="FrankenPHP with the easy-excel (Go/excelize) spreadsheet extension" \
       org.opencontainers.image.source="https://github.com/xiidea/easy-excel"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	acl \
+	file \
+	gettext \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+	install-php-extensions \
+		redis \
+        mongodb \
+        pdo_pgsql \
+        pdo_mysql \
+        bcmath \
+            apcu \
+            gd \
+            intl \
+            opcache \
+            zip \
+            igbinary \
+            yaml \
+            xsl \
+            gettext \
+            sockets \
+	;
