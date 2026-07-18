@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace EasyExcel\Compat;
 
+use EasyExcel\Compat\Cell\IValueBinder;
 use EasyExcel\Compat\Worksheet\Worksheet;
 use EasyExcel\Native;
 
@@ -82,6 +83,30 @@ class Spreadsheet
         }
 
         throw new Exception("Workbook does not contain sheet: $worksheetName");
+    }
+
+    /**
+     * PhpSpreadsheet parity: attach an externally constructed (detached)
+     * Worksheet. The sheet is created natively under its current title and
+     * inserted at $sheetIndex (appended when null/out of range).
+     */
+    public function addSheet(Worksheet $worksheet, ?int $sheetIndex = null): Worksheet
+    {
+        if ($this->getSheetByName($worksheet->getTitle()) !== null) {
+            throw new Exception(
+                'Workbook already contains a worksheet named "' . $worksheet->getTitle() . '"; rename it first'
+            );
+        }
+        $worksheet->rebindParent($this);
+        Native::addSheet($this->getHandle(), $worksheet->getTitle());
+        if ($sheetIndex === null || $sheetIndex >= \count($this->worksheets)) {
+            $this->worksheets[] = $worksheet;
+        } else {
+            Native::moveSheet($this->getHandle(), $worksheet->getTitle(), $sheetIndex);
+            \array_splice($this->worksheets, $sheetIndex, 0, [$worksheet]);
+        }
+
+        return $worksheet;
     }
 
     public function createSheet(?int $sheetIndex = null): Worksheet
@@ -164,6 +189,21 @@ class Spreadsheet
         $ws->flush();
         Native::deleteSheet($this->getHandle(), $ws->getTitle());
         \array_splice($this->worksheets, $sheetIndex, 1);
+    }
+
+    /** Workbook-level value binder (PhpSpreadsheet >= 2.x); overrides the legacy static Cell binder. */
+    private ?IValueBinder $valueBinder = null;
+
+    public function setValueBinder(?IValueBinder $valueBinder): static
+    {
+        $this->valueBinder = $valueBinder;
+
+        return $this;
+    }
+
+    public function getValueBinder(): ?IValueBinder
+    {
+        return $this->valueBinder;
     }
 
     private ?Document\Properties $properties = null;

@@ -8,6 +8,7 @@ use EasyExcel\Compat\Cell\Cell;
 use EasyExcel\Compat\Cell\Coordinate;
 use EasyExcel\Compat\Cell\DataType;
 use EasyExcel\Compat\Cell\Hyperlink;
+use EasyExcel\Compat\Cell\IValueBinder;
 use EasyExcel\Compat\Comment;
 use EasyExcel\Compat\RichText\RichText;
 use EasyExcel\Compat\Exception;
@@ -43,13 +44,46 @@ class Worksheet
     /** @var list<Drawing> List of attached drawings */
     private array $drawings = [];
 
-    public function __construct(private Spreadsheet $parent, private string $title)
+    /**
+     * PhpSpreadsheet parity: a Worksheet may be constructed detached
+     * (`new Worksheet()`) and attached later via Spreadsheet::addSheet().
+     * Until attached, only title get/set work; anything touching the native
+     * workbook throws (see workbookHandle()).
+     */
+    public function __construct(private ?Spreadsheet $parent = null, private string $title = 'Worksheet')
     {
     }
 
-    public function getParent(): Spreadsheet
+    public function getParent(): ?Spreadsheet
     {
         return $this->parent;
+    }
+
+    /** @internal called by Spreadsheet::addSheet() when attaching a detached sheet */
+    public function rebindParent(Spreadsheet $parent): static
+    {
+        if ($this->parent === $parent) {
+            return $this;
+        }
+        if ($this->parent !== null) {
+            throw new Exception(
+                'Worksheet "' . $this->title . '" already belongs to a workbook; moving sheets between workbooks is not supported'
+            );
+        }
+        $this->parent = $parent;
+
+        return $this;
+    }
+
+    private function workbookHandle(): int
+    {
+        if ($this->parent === null) {
+            throw new Exception(
+                'Worksheet "' . $this->title . '" is not attached to a Spreadsheet yet — add it with $spreadsheet->addSheet() first'
+            );
+        }
+
+        return $this->parent->getHandle();
     }
 
     public function getTitle(): string
@@ -62,7 +96,9 @@ class Worksheet
         if ($title === $this->title) {
             return $this;
         }
-        Native::renameSheet($this->parent->getHandle(), $this->title, $title);
+        if ($this->parent !== null) {
+            Native::renameSheet($this->parent->getHandle(), $this->title, $title);
+        }
         $this->title = $title;
 
         return $this;
@@ -91,7 +127,7 @@ class Worksheet
 
             return $this;
         }
-        if (($binder = Cell::customValueBinder()) !== null) {
+        if (($binder = $this->activeBinder()) !== null) {
             [$col, $row] = $this->toIndexes($coordinate);
             $binder->bindValue(new Cell($this, Coordinate::stringFromColumnIndex($col) . $row), $value);
 
@@ -103,6 +139,16 @@ class Worksheet
         return $this;
     }
 
+    /**
+     * Effective custom binder: the workbook-level binder
+     * (Spreadsheet::setValueBinder(), PhpSpreadsheet >= 2.x) wins over the
+     * legacy process-wide Cell::setValueBinder(); null means default binding.
+     */
+    private function activeBinder(): ?IValueBinder
+    {
+        return $this->parent?->getValueBinder() ?? Cell::customValueBinder();
+    }
+
     /** @internal rich-text cell value (wave 4.4): queued via the extension */
     public function setRichTextValue(string $coordinate, RichText $richText): void
     {
@@ -111,7 +157,7 @@ class Worksheet
         [$col, $row] = Coordinate::indexesFromString($coordinate);
         $this->bufferCell($row, $col, $richText->getPlainText());
         $this->flush();
-        Native::setRichText($this->parent->getHandle(), $this->title, $coordinate, $richText->toRunSpecs());
+        Native::setRichText($this->workbookHandle(), $this->title, $coordinate, $richText->toRunSpecs());
     }
 
     public function setCellValueByColumnAndRow(int $columnIndex, int $row, mixed $value): static
@@ -151,7 +197,7 @@ class Worksheet
 
         // a custom binder must see every value: route through the buffered
         // per-cell path (slower, still batched per 512 rows)
-        if (($binder = Cell::customValueBinder()) !== null) {
+        if (($binder = $this->activeBinder()) !== null) {
             $row = $startRow;
             foreach ($source as $rowData) {
                 $col = $startCol;
@@ -181,13 +227,13 @@ class Worksheet
             $chunk[] = $encoded;
             ++$row;
             if (\count($chunk) >= 1024) {
-                Native::writeRows($this->parent->getHandle(), $this->title, $chunkStart, $startCol, $chunk);
+                Native::writeRows($this->workbookHandle(), $this->title, $chunkStart, $startCol, $chunk);
                 $chunk = [];
                 $chunkStart = $row;
             }
         }
         if ($chunk !== []) {
-            Native::writeRows($this->parent->getHandle(), $this->title, $chunkStart, $startCol, $chunk);
+            Native::writeRows($this->workbookHandle(), $this->title, $chunkStart, $startCol, $chunk);
         }
 
         return $this;
@@ -218,13 +264,13 @@ class Worksheet
             }
         }
 
-        return Native::getCell($this->parent->getHandle(), $this->title, $coordinate, $mode);
+        return Native::getCell($this->workbookHandle(), $this->title, $coordinate, $mode);
     }
 
     public function toArray(mixed $nullValue = null, bool $calculateFormulas = true, bool $formatData = true, bool $returnCellRef = false): array
     {
         $this->flush();
-        [$maxRow, $maxCol] = Native::dimensions($this->parent->getHandle(), $this->title);
+        [$maxRow, $maxCol] = Native::dimensions($this->workbookHandle(), $this->title);
 
         return $this->collectRows(1, \max($maxRow, 1), 1, \max($maxCol, 1), $nullValue, $formatData, $returnCellRef, $calculateFormulas);
     }
@@ -243,7 +289,7 @@ class Worksheet
      */
     private function collectRows(int $startRow, int $endRow, int $startCol, ?int $endCol, mixed $nullValue, bool $formatData, bool $returnCellRef, bool $calc = false): array
     {
-        $handle = $this->parent->getHandle();
+        $handle = $this->workbookHandle();
         $filter = $this->parent->getReadFilter();
         $out = [];
         $row = $startRow;
@@ -305,7 +351,7 @@ class Worksheet
     public function getHighestRow(?string $column = null): int
     {
         $this->flush();
-        [$maxRow] = Native::dimensions($this->parent->getHandle(), $this->title);
+        [$maxRow] = Native::dimensions($this->workbookHandle(), $this->title);
 
         return \max($maxRow, 1);
     }
@@ -313,7 +359,7 @@ class Worksheet
     public function getHighestColumn(?int $row = null): string
     {
         $this->flush();
-        [, $maxCol] = Native::dimensions($this->parent->getHandle(), $this->title);
+        [, $maxCol] = Native::dimensions($this->workbookHandle(), $this->title);
 
         return Coordinate::stringFromColumnIndex(\max($maxCol, 1));
     }
@@ -340,7 +386,7 @@ class Worksheet
         }
         // no flush: the Go op-log applies merges by coordinates regardless of
         // when the rows arrive, and flushing here would end streaming early
-        Native::mergeCells($this->parent->getHandle(), $this->title, $range);
+        Native::mergeCells($this->workbookHandle(), $this->title, $range);
 
         return $this;
     }
@@ -353,7 +399,7 @@ class Worksheet
                 $range
             ));
         }
-        Native::unmergeCells($this->parent->getHandle(), $this->title, $range);
+        Native::unmergeCells($this->workbookHandle(), $this->title, $range);
 
         return $this;
     }
@@ -363,7 +409,7 @@ class Worksheet
     {
         $this->flush();
         $out = [];
-        foreach (Native::getMerges($this->parent->getHandle(), $this->title) as $range) {
+        foreach (Native::getMerges($this->workbookHandle(), $this->title) as $range) {
             $out[$range] = $range;
         }
 
@@ -441,7 +487,7 @@ class Worksheet
             ));
         }
         $this->autoFilterRange = $range;
-        Native::autoFilter($this->parent->getHandle(), $this->title, $range);
+        Native::autoFilter($this->workbookHandle(), $this->title, $range);
 
         return $this;
     }
@@ -476,7 +522,7 @@ class Worksheet
     {
         $spec = $style->describe();
         if ($spec !== []) {
-            Native::applyStyle($this->parent->getHandle(), $this->title, $range, $spec);
+            Native::applyStyle($this->workbookHandle(), $this->title, $range, $spec);
         }
 
         return $this;
@@ -484,7 +530,7 @@ class Worksheet
 
     public function freezePane(?string $coordinate): static
     {
-        Native::freezePanes($this->parent->getHandle(), $this->title, $coordinate ?? '');
+        Native::freezePanes($this->workbookHandle(), $this->title, $coordinate ?? '');
 
         return $this;
     }
@@ -516,7 +562,7 @@ class Worksheet
     public function setHyperlink(string $cellCoordinate, ?Hyperlink $hyperlink): static
     {
         Native::setHyperlink(
-            $this->parent->getHandle(),
+            $this->workbookHandle(),
             $this->title,
             $cellCoordinate,
             $hyperlink?->getUrl() ?? '',
@@ -541,7 +587,7 @@ class Worksheet
     public function insertNewRowBefore(int $before, int $count = 1): static
     {
         $this->flush();
-        Native::insertRows($this->parent->getHandle(), $this->title, $before, $count);
+        Native::insertRows($this->workbookHandle(), $this->title, $before, $count);
 
         return $this;
     }
@@ -549,7 +595,7 @@ class Worksheet
     public function removeRow(int $row, int $count = 1): static
     {
         $this->flush();
-        Native::removeRows($this->parent->getHandle(), $this->title, $row, $count);
+        Native::removeRows($this->workbookHandle(), $this->title, $row, $count);
 
         return $this;
     }
@@ -557,7 +603,7 @@ class Worksheet
     public function insertNewColumnBefore(string $before, int $count = 1): static
     {
         $this->flush();
-        Native::insertCols($this->parent->getHandle(), $this->title, Coordinate::columnIndexFromString($before), $count);
+        Native::insertCols($this->workbookHandle(), $this->title, Coordinate::columnIndexFromString($before), $count);
 
         return $this;
     }
@@ -565,7 +611,7 @@ class Worksheet
     public function insertNewColumnBeforeByIndex(int $beforeColumnIndex, int $count = 1): static
     {
         $this->flush();
-        Native::insertCols($this->parent->getHandle(), $this->title, $beforeColumnIndex, $count);
+        Native::insertCols($this->workbookHandle(), $this->title, $beforeColumnIndex, $count);
 
         return $this;
     }
@@ -573,7 +619,7 @@ class Worksheet
     public function removeColumn(string $column, int $count = 1): static
     {
         $this->flush();
-        Native::removeCols($this->parent->getHandle(), $this->title, Coordinate::columnIndexFromString($column), $count);
+        Native::removeCols($this->workbookHandle(), $this->title, Coordinate::columnIndexFromString($column), $count);
 
         return $this;
     }
@@ -581,7 +627,7 @@ class Worksheet
     public function removeColumnByIndex(int $columnIndex, int $count = 1): static
     {
         $this->flush();
-        Native::removeCols($this->parent->getHandle(), $this->title, $columnIndex, $count);
+        Native::removeCols($this->workbookHandle(), $this->title, $columnIndex, $count);
 
         return $this;
     }
@@ -629,7 +675,7 @@ class Worksheet
     {
         if ($dataValidation !== null) {
             Native::setValidation(
-                $this->parent->getHandle(),
+                $this->workbookHandle(),
                 $this->title,
                 $range,
                 $dataValidation->toSpec(),
@@ -647,7 +693,7 @@ class Worksheet
      */
     public function addNativeChart(string $cell, array $spec): static
     {
-        Native::addChart($this->parent->getHandle(), $this->title, $cell, $spec);
+        Native::addChart($this->workbookHandle(), $this->title, $cell, $spec);
 
         return $this;
     }
@@ -656,7 +702,7 @@ class Worksheet
     public function addChart(\EasyExcel\Compat\Chart\Chart $chart): static
     {
         Native::addChart(
-            $this->parent->getHandle(),
+            $this->workbookHandle(),
             $this->title,
             $chart->getTopLeftCell(),
             $chart->buildSpec(),
@@ -678,7 +724,7 @@ class Worksheet
         $this->bufferedRows = 0;
         \ksort($buffer);
 
-        $handle = $this->parent->getHandle();
+        $handle = $this->workbookHandle();
         $runRows = [];
         $runStart = null;
         $runMinCol = PHP_INT_MAX;
