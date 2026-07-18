@@ -218,6 +218,7 @@
     "PhpOffice\\PhpSpreadsheet\\Chart\\Axis",
     "PhpOffice\\PhpSpreadsheet\\Chart\\AxisText",
     "PhpOffice\\PhpSpreadsheet\\Chart\\ChartColor",
+    "PhpOffice\\PhpSpreadsheet\\Chart\\DataTable",
     "PhpOffice\\PhpSpreadsheet\\Chart\\Exception",
     "PhpOffice\\PhpSpreadsheet\\Chart\\GridLines",
     "PhpOffice\\PhpSpreadsheet\\Chart\\Layout",
