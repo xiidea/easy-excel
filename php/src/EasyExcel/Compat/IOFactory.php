@@ -25,6 +25,13 @@ abstract class IOFactory
             self::WRITER_XLSX => new XlsxWriter($spreadsheet),
             self::WRITER_CSV => new CsvWriter($spreadsheet),
             self::WRITER_HTML => new HtmlWriter($spreadsheet),
+            // 'Pdf' is deliberately absent, as it is upstream: Writer\Pdf is
+            // abstract and the consumer picks a driver by class
+            // (Writer\Pdf\Mpdf, \Tcpdf, \Dompdf, \Snappy).
+            'Pdf' => throw new Exception(
+                'easy-excel: Writer\Pdf is abstract — construct a driver directly, '
+                . 'e.g. new Writer\Pdf\Mpdf($spreadsheet) or new Writer\Pdf\Snappy($spreadsheet)'
+            ),
             default => throw new Exception(
                 "easy-excel: writer \"$writerType\" is not supported yet (COMPAT.md lists supported formats)"
             ),

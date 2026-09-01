@@ -61,6 +61,8 @@ const (
 	opAutoFilterCols
 	opDefaultRowHeight
 	opDefaultColWidth
+	opPageBreak
+	opSelection
 )
 
 type pendingOp struct {
@@ -349,6 +351,16 @@ func (w *Workbook) FreezePanes(sheet, topLeft string) error {
 	}
 	if err := w.mutable(); err != nil {
 		return err
+	}
+	// Carry any selection the sheet already has: excelize keeps selection
+	// inside the pane record, so writing fresh panes would discard a
+	// setSelectedCells() made earlier (review item 4b — the mirror of the
+	// case panesWithSelection handles).
+	if existing, err := w.f.GetPanes(sheet); err == nil && len(existing.Selection) > 0 {
+		panes.Selection = existing.Selection
+		for i := range panes.Selection {
+			panes.Selection[i].Pane = panes.ActivePane
+		}
 	}
 	return w.f.SetPanes(sheet, panes)
 }

@@ -180,6 +180,26 @@ final class Native
         self::check(\easy_excel_freeze_panes($handle, $sheet, $topLeftCell));
     }
 
+    public static function setPrecalculateFormulas(int $handle, bool $on): void
+    {
+        self::check(\easy_excel_set_precalculate_formulas($handle, $on));
+    }
+
+    public static function setFullCalcOnLoad(int $handle, bool $on): void
+    {
+        self::check(\easy_excel_set_full_calc_on_load($handle, $on));
+    }
+
+    public static function setBreak(int $handle, string $sheet, string $cell, int $breakType): void
+    {
+        self::check(\easy_excel_set_break($handle, $sheet, $cell, $breakType));
+    }
+
+    public static function setSelection(int $handle, string $sheet, string $range): void
+    {
+        self::check(\easy_excel_set_selection($handle, $sheet, $range));
+    }
+
     public static function autoFilter(int $handle, string $sheet, string $range): void
     {
         self::check(\easy_excel_auto_filter($handle, $sheet, $range));

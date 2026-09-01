@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace EasyExcel\Compat\Writer;
 
 use EasyExcel\Compat\Cell\Coordinate;
-use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\StreamPath;
 use EasyExcel\Compat\Spreadsheet;
 use EasyExcel\Compat\Worksheet\PageSetup;
@@ -508,6 +507,33 @@ class Html extends BaseWriter
                 $html .= '</table>' . $eol;
             }
 
+            // A rowspan cannot cross the thead/tbody boundary: the browser
+            // clamps it at the end of the section, which would drop the
+            // covered cells out of alignment. Extend the header section to
+            // cover any merge that starts inside it.
+            //
+            // Iterated to a fixed point, not a single pass: extending the
+            // boundary can pull in a further merge that was previously outside
+            // it. With A3:A5 and A5:A7 and repeatEnd = 3, a single pass that
+            // happened to see A5:A7 first would skip it, then raise repeatEnd
+            // to 5 — leaving A5:A7 straddling the boundary, which is the case
+            // being fixed. Merge count is small and bounded, so re-scanning is
+            // cheap; the loop is also bounded by it (review item 7).
+            $merges = $sheet->getMergeCells();
+            for ($pass = \count($merges); $pass > 0; --$pass) {
+                $extended = false;
+                foreach ($merges as $mergeRange) {
+                    [[, $mergeStartRow], [, $mergeEndRow]] = Coordinate::rangeBoundaries($mergeRange);
+                    if ($mergeStartRow >= $repeatStart && $mergeStartRow <= $repeatEnd && $mergeEndRow > $repeatEnd) {
+                        $repeatEnd = $mergeEndRow;
+                        $extended = true;
+                    }
+                }
+                if (!$extended) {
+                    break;
+                }
+            }
+
             // Write table 2 with thead (repeat rows) and tbody (subsequent rows)
             $html .= '<table class="sheet" id="sheet' . $index . '_repeated">' . $eol;
             if ($repeatStart <= 1) {
@@ -643,11 +669,20 @@ class Html extends BaseWriter
 
         // Borders
         if (isset($style['borders'])) {
+            // allBorders applies to every side unless a side overrides it.
+            $allBorders = $style['borders']['allBorders'] ?? null;
             foreach (['top', 'bottom', 'left', 'right'] as $borderName) {
-                if (isset($style['borders'][$borderName])) {
-                    $border = $style['borders'][$borderName];
+                $border = $style['borders'][$borderName] ?? $allBorders;
+                if (null !== $border) {
                     $borderStyle = $border['borderStyle'] ?? 'none';
-                    if ($borderStyle !== 'none') {
+                    if ($borderStyle === 'none') {
+                        // An explicit BORDER_NONE must emit a rule: the
+                        // sheet-wide `table.sheet td` border would otherwise
+                        // stay visible, since nothing overrides it. Cells that
+                        // were never styled have no 'borders' key at all, so
+                        // they keep the sheet default.
+                        $rules[] = "border-{$borderName}: none;";
+                    } else {
                         $width = '1px';
                         if (\str_contains($borderStyle, 'medium')) {
                             $width = '2px';

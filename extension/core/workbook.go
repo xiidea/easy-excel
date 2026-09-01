@@ -85,6 +85,44 @@ type Workbook struct {
 	degraded    bool
 	needsReopen bool // streams were flushed by a save; model edits need a reopen
 	closed      bool
+
+	// Formula cache controls (formulacache.go). fullCalcOnLoad is free and
+	// defaults on; precalculate forfeits streaming, so it is opt-in and only
+	// acts when the workbook actually contains a formula.
+	fullCalcOnLoad bool
+	precalculate   bool
+	sawFormula     bool
+	openedFromFile bool
+
+	// Cells whose numeric result cacheFormulaResults() wrote this save, per
+	// sheet. The type patch rewrites exactly these and nothing else: scanning
+	// the whole container instead would retype a *genuine* string result that
+	// happens to look numeric — TEXT(A1,"0000") caching "0042" would come back
+	// as 42 — which is the corruption the cache exists to avoid.
+	cachedNumeric map[string]map[string]bool
+}
+
+// anyFormulaWritten reports whether the workbook might contain a formula.
+//
+// A workbook opened from a file counts unconditionally: excelize exposes no
+// bulk formula reader, so proving the absence of formulas would cost a full
+// cell scan — the very work this guard exists to avoid. The guard therefore
+// only spares freshly-built, pure-data exports. What keeps a loaded workbook
+// from degrading unasked is that precalculation is opt-in (blocker 3), not
+// this check.
+func (w *Workbook) anyFormulaWritten() bool {
+	if w.sawFormula {
+		return true
+	}
+	if !w.openedFromFile {
+		return false
+	}
+	// A loaded workbook may carry formulas we never wrote. excelize exposes no
+	// bulk formula reader, so rather than scan every cell here the decision is
+	// deferred: the pass runs, and cacheFormulaResults() iterates rows it has
+	// to read anyway. The cost is bounded by the file the caller already
+	// opened, and only when precalculation was explicitly requested.
+	return true
 }
 
 // Env wires the process-wide gate and path policy into workbooks.
@@ -126,6 +164,8 @@ func New(env *Env) (*Workbook, error) {
 		gate:     env.gate(),
 		policy:   env.policy(),
 		estBytes: baseEstimate,
+		// Free, and fixes every spreadsheet application; see formulacache.go.
+		fullCalcOnLoad: true,
 	}
 	return w, nil
 }
@@ -167,6 +207,9 @@ func Open(path, password string, env *Env) (*Workbook, error) {
 		policy:   env.policy(),
 		estBytes: est,
 		degraded: true, // random-access from the start
+		// Free, and fixes every spreadsheet application; see formulacache.go.
+		fullCalcOnLoad: true,
+		openedFromFile: true,
 	}
 	for _, name := range f.GetSheetList() {
 		st := &sheetState{}
@@ -427,6 +470,7 @@ func (w *Workbook) streamRows(sheet string, st *sheetState, startRow, startCol i
 				}
 			case compat.Formula:
 				values[j] = excelize.Cell{StyleID: styleID, Formula: c.Str}
+				w.sawFormula = true
 			}
 		}
 		anchor, err := excelize.CoordinatesToCellName(startCol, rowNum)
@@ -505,6 +549,7 @@ func (w *Workbook) setCellLocked(sheet, axis string, c compat.Cell) error {
 	case compat.Boolean:
 		return w.f.SetCellBool(sheet, axis, c.Bool)
 	case compat.Formula:
+		w.sawFormula = true
 		return w.f.SetCellFormula(sheet, axis, c.Str)
 	}
 	return nil
@@ -901,33 +946,49 @@ func (w *Workbook) SaveXlsx(path, password string) error {
 	if password != "" {
 		return w.saveAsAnyPath(abs, excelize.Options{Password: password})
 	}
-	patches := w.filterPatches()
-	if len(patches) == 0 {
+	if len(w.containerPasses()) == 0 {
 		return w.saveAsAnyPath(abs)
 	}
-	tmp := abs + ".unpatched.xlsx" // excelize validates the extension
-	if err := w.f.SaveAs(tmp); err != nil {
-		return err
-	}
-	defer os.Remove(tmp)
-	src, err := os.Open(tmp)
+	// Staged write then rename, matching saveAsAnyPath: truncating the
+	// destination up front would destroy an existing file on a mid-write
+	// failure.
+	staged := abs + ".eexcel.xlsx"
+	out, err := os.Create(staged)
 	if err != nil {
 		return err
 	}
-	defer src.Close()
-	fi, err := src.Stat()
-	if err != nil {
-		return err
-	}
-	out, err := os.Create(abs)
-	if err != nil {
-		return err
-	}
-	if err := patchAutoFilters(src, fi.Size(), out, patches); err != nil {
+	if err := w.writeXlsxTo(out, filepath.Dir(abs)); err != nil {
 		out.Close()
+		os.Remove(staged)
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		os.Remove(staged)
+		return err
+	}
+	return os.Rename(staged, abs)
+}
+
+// containerPasses is the ordered list of post-save rewrites this workbook
+// needs. Both are streaming zip rewrites over the saved container; keeping
+// them in one list means a save needing both composes them instead of one
+// silently overwriting the other's output.
+func (w *Workbook) containerPasses() []func(io.ReaderAt, int64, io.Writer) error {
+	var passes []func(io.ReaderAt, int64, io.Writer) error
+	if patches := w.filterPatches(); len(patches) > 0 {
+		passes = append(passes, func(src io.ReaderAt, size int64, dst io.Writer) error {
+			return patchAutoFilters(src, size, dst, patches)
+		})
+	}
+	// Only when this save actually cached something: the pass is keyed by the
+	// cell references it wrote, so with none there is nothing to rewrite.
+	if len(w.cachedNumeric) > 0 {
+		cached := w.cachedNumeric
+		passes = append(passes, func(src io.ReaderAt, size int64, dst io.Writer) error {
+			return patchNumericFormulaTypes(src, size, dst, cached)
+		})
+	}
+	return passes
 }
 
 // WriteXlsxTo streams the workbook to an arbitrary writer (php:// targets).
@@ -945,24 +1006,76 @@ func (w *Workbook) WriteXlsxTo(out io.Writer) error {
 	if err := w.settleForSave(true); err != nil {
 		return err
 	}
-	patches := w.filterPatches()
-	if len(patches) == 0 {
+	return w.writeXlsxTo(out, "")
+}
+
+// writeXlsxTo serialises the workbook and runs each container pass in turn.
+//
+// Intermediate hops stage through a temp *file*, not a bytes.Buffer: a large
+// streamed export is exactly the case these patches exist for, and buffering
+// the container in memory would give back the constant-memory property the
+// StreamWriter provides.
+//
+// tmpDir is where those stages live. SaveXlsx passes the destination's own
+// directory so a multi-GB export is not staged on a small /tmp tmpfs while the
+// target sits on a large volume; "" (the system temp dir) is right for
+// WriteXlsxTo, which writes to a caller-owned stream and has no destination
+// path to stage beside.
+func (w *Workbook) writeXlsxTo(out io.Writer, tmpDir string) error {
+	passes := w.containerPasses()
+	if len(passes) == 0 {
 		return w.f.Write(out)
 	}
-	tmp, err := os.CreateTemp("", "easyexcel-*.xlsx")
+
+	// Temp files, not buffers: these passes exist to serve large streamed
+	// exports, and holding the container in memory would give back the
+	// constant-memory property the StreamWriter provides. Each is tracked so
+	// one cleanup path removes them all — deferring inside the loop would
+	// both accumulate and close whichever file the variable last pointed at.
+	var stages []*os.File
+	defer func() {
+		for _, f := range stages {
+			f.Close()
+			os.Remove(f.Name())
+		}
+	}()
+	newStage := func() (*os.File, error) {
+		f, err := os.CreateTemp(tmpDir, "easyexcel-*.xlsx")
+		if err != nil {
+			return nil, err
+		}
+		stages = append(stages, f)
+		return f, nil
+	}
+
+	stage, err := newStage()
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
-	defer tmp.Close()
-	if err := w.f.Write(tmp); err != nil {
+	if err := w.f.Write(stage); err != nil {
 		return err
 	}
-	fi, err := tmp.Stat()
-	if err != nil {
-		return err
+	for i, pass := range passes {
+		fi, err := stage.Stat()
+		if err != nil {
+			return err
+		}
+		if _, err := stage.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		if i == len(passes)-1 {
+			return pass(stage, fi.Size(), out)
+		}
+		next, err := newStage()
+		if err != nil {
+			return err
+		}
+		if err := pass(stage, fi.Size(), next); err != nil {
+			return err
+		}
+		stage = next
 	}
-	return patchAutoFilters(tmp, fi.Size(), out, patches)
+	return nil
 }
 
 // settleForSave brings the workbook into a saveable state: queued structure
@@ -1017,12 +1130,27 @@ func (w *Workbook) settleForSave(allowPatch bool) error {
 			}
 		}
 	}
-	if w.hasAnyPendingWork() {
+	// Pre-calculation reads every formula back, which random-access mode is a
+	// precondition for — but only pay that price if the workbook actually has
+	// a formula. A pure-data export keeps streaming with the flag left on.
+	// Refs from a previous save must not drive this one's patch.
+	w.cachedNumeric = nil
+	precalcNeeded := w.precalculate && w.anyFormulaWritten()
+	if precalcNeeded || w.hasAnyPendingWork() {
 		if err := w.ensureRandomAll(); err != nil {
 			return err
 		}
 	}
-	return w.flushStreams()
+	if err := w.flushStreams(); err != nil {
+		return err
+	}
+	if precalcNeeded {
+		// After the flush: the formulas must be in the model to be evaluated.
+		if _, err := w.cacheFormulaResults(); err != nil {
+			return err
+		}
+	}
+	return w.applyCalcProps()
 }
 
 func (w *Workbook) filterPatches() []filterPatch {

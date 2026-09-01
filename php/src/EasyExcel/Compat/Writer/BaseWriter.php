@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace EasyExcel\Compat\Writer;
 
-use EasyExcel\Compat\Exception;
 
 /**
  * Shared base for writers, PhpSpreadsheet-compatible. Holds the include-charts,
@@ -20,6 +19,18 @@ abstract class BaseWriter implements IWriter
     protected bool $includeCharts = false;
 
     protected bool $preCalculateFormulas = true;
+
+    /**
+     * Whether setPreCalculateFormulas() was called explicitly.
+     *
+     * The accessor keeps PhpSpreadsheet's `true` default for API parity, but
+     * easy-excel must not *act* on it unhinted: pre-calculation reads every
+     * formula back, which forces a streamed workbook into the full in-memory
+     * model. Trading away constant-memory streaming — the reason this engine
+     * exists — is a decision the caller has to make, not one inherited from an
+     * upstream default (review blocker 3).
+     */
+    protected bool $preCalculateFormulasSet = false;
 
     private bool $useDiskCaching = false;
 
@@ -50,8 +61,18 @@ abstract class BaseWriter implements IWriter
     public function setPreCalculateFormulas(bool $precalculateFormulas): self
     {
         $this->preCalculateFormulas = $precalculateFormulas;
+        $this->preCalculateFormulasSet = true;
 
         return $this;
+    }
+
+    /**
+     * @internal the effective setting: only an explicit opt-in enables the
+     *           save-time evaluate-and-cache pass (see $preCalculateFormulasSet)
+     */
+    public function shouldPreCalculateFormulas(): bool
+    {
+        return $this->preCalculateFormulasSet && $this->preCalculateFormulas;
     }
 
     public function getUseDiskCaching(): bool

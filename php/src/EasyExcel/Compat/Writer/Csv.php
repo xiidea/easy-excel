@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace EasyExcel\Compat\Writer;
 
-use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\StreamPath;
 use EasyExcel\Compat\Spreadsheet;
 use EasyExcel\Native;

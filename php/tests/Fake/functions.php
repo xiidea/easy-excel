@@ -17,12 +17,21 @@ final class EasyExcelFake
     /** @var list<array{0: string, 1: array}> */
     public static array $log = [];
 
+    /**
+     * Canned calculated results keyed by cell ref, so tests can exercise the
+     * shim's handling of what the engine returns without a real calc engine.
+     *
+     * @var array<string, mixed>
+     */
+    public static array $calculated = [];
+
     public static int $nextHandle = 1;
 
     public static function reset(): void
     {
         self::$store = [];
         self::$log = [];
+        self::$calculated = [];
         self::$nextHandle = 1;
     }
 
@@ -222,8 +231,12 @@ function easy_excel_get_cell(int $handle, string $sheet, string $cell, int $mode
     if ($mode === 1 && $v !== null) { // formatted
         $v = EasyExcelFake::stringify($v);
     }
-    if ($mode === 2) { // calculated: not supported by the fake
-        $v = \is_string($v) && \str_starts_with($v, '=') ? '#FAKE!' : $v;
+    if ($mode === 2) { // calculated
+        if (\array_key_exists($cell, EasyExcelFake::$calculated)) {
+            $v = EasyExcelFake::$calculated[$cell];
+        } else {
+            $v = \is_string($v) && \str_starts_with($v, '=') ? '#FAKE!' : $v;
+        }
     }
 
     return [$v, null];
@@ -318,6 +331,50 @@ function easy_excel_set_default_col_width(int $handle, string $sheet, float $wid
 function easy_excel_freeze_panes(int $handle, string $sheet, string $topLeftCell): ?string
 {
     EasyExcelFake::$log[] = ['freeze_panes', [$handle, $sheet, $topLeftCell]];
+
+    return null;
+}
+
+function easy_excel_set_precalculate_formulas(int $handle, bool $on): ?string
+{
+    EasyExcelFake::$log[] = ['set_precalculate_formulas', [$handle, $on]];
+
+    return null;
+}
+
+function easy_excel_set_full_calc_on_load(int $handle, bool $on): ?string
+{
+    EasyExcelFake::$log[] = ['set_full_calc_on_load', [$handle, $on]];
+
+    return null;
+}
+
+function easy_excel_set_break(int $handle, string $sheet, string $cell, int $breakType): ?string
+{
+    EasyExcelFake::$log[] = ['set_break', [$handle, $sheet, $cell, $breakType]];
+
+    // Mirrors the Go guard so the shim's error path is exercised in tests.
+    if (!\in_array($breakType, [0, 1, 2], true)) {
+        return "easy-excel: unsupported break type {$breakType}";
+    }
+    if (\preg_match('/^[A-Z]+[1-9][0-9]*$/', $cell) !== 1) {
+        return "easy-excel: invalid break cell \"{$cell}\"";
+    }
+
+    return null;
+}
+
+function easy_excel_set_selection(int $handle, string $sheet, string $range): ?string
+{
+    EasyExcelFake::$log[] = ['set_selection', [$handle, $sheet, $range]];
+
+    if ($range === '') {
+        return null;
+    }
+    $topLeft = \explode(':', $range)[0];
+    if (\preg_match('/^[A-Z]+[1-9][0-9]*$/', $topLeft) !== 1) {
+        return "easy-excel: invalid selection \"{$range}\"";
+    }
 
     return null;
 }

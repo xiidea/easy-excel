@@ -44,11 +44,19 @@ class Cell
     public function getCalculatedValue(bool $resetLog = true): mixed
     {
         $v = $this->worksheet->readCell($this->coordinate, Native::GET_CALCULATED);
-        if (\is_string($v) && \is_numeric($v)) {
-            return $v + 0;
+        if (!\is_string($v) || !\is_numeric($v)) {
+            return $v;
+        }
+        // Only cast when the string is the *canonical* rendering of the
+        // number: TEXT(A1,"0000") returns "0042", which is_numeric() accepts
+        // but which becomes 42 if cast — silently dropping the leading zeros
+        // the formula exists to produce. Same for "1.50" and " 3".
+        $number = $v + 0;
+        if ((string) $number !== $v) {
+            return $v;
         }
 
-        return $v;
+        return $number;
     }
 
     public function getFormattedValue(): string

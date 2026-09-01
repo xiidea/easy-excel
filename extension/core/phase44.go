@@ -100,6 +100,8 @@ func (w *Workbook) applyOpPhase44(sheet string, op pendingOp) error {
 			opts = append(opts, excelize.AutoFilterOptions{Column: c.Column, Expression: c.Expression})
 		}
 		return w.f.AutoFilter(sheet, op.ref, opts)
+	case opPageBreak, opSelection:
+		return w.applyOpPhase53(sheet, op)
 	}
 	return fmt.Errorf("easy-excel: unknown pending op %d", op.kind)
 }

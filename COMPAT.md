@@ -15,7 +15,7 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | DataType | all `TYPE_*` constants | |
 | Shared\Date | `PHPToExcel`, `dateTimeToExcel`, `timestampToExcel`, `stringToExcel`, `excelToDateTimeObject`, `excelToTimestamp`, `formattedPHPToExcel`, 1900/1904 calendars | Julian-day algorithm ported verbatim, incl. the 1900 leap-year bug |
 | IOFactory | `createWriter/Reader` (Xlsx, Csv, Html), `load`, `identify` | |
-| Writer\IWriter, Writer\BaseWriter | full PhpSpreadsheet contract (`SAVE_WITH_CHARTS`/`DISABLE_PRECALCULATE_FORMULAE`, include-charts / pre-calculate / disk-caching accessors, `openFileHandle`/`processFlags`/`maybeCloseFileHandle`) | extend `BaseWriter` (or implement `IWriter`) for custom writers; the built-in writers extend it. Chart/precalc/disk-cache flags are state-only — the extension does not consume them |
+| Writer\IWriter, Writer\BaseWriter | full PhpSpreadsheet contract (`SAVE_WITH_CHARTS`/`DISABLE_PRECALCULATE_FORMULAE`, include-charts / pre-calculate / disk-caching accessors, `openFileHandle`/`processFlags`/`maybeCloseFileHandle`) | extend `BaseWriter` (or implement `IWriter`) for custom writers; the built-in writers extend it. Chart and disk-cache flags are state-only; **pre-calculate is wired through** (divergence 24) |
 | Writer\Xlsx | `save` (paths, stream-wrapper URLs — `php://`, `gaufrette://`, `s3://`, … — and open resources) | wrapper targets are staged through a local temp file (the extension only writes real paths) |
 | Writer\Csv | `set/getDelimiter`, `setEnclosure` (only `"`), `set/getLineEnding`, `set/getUseBOM`, `set/getSheetIndex`, `save` (paths, stream-wrapper URLs, open resources) | plus `setSanitizeFormulas()` (easy-excel extra, opt-in OWASP guard) |
 | Writer\Html | `save`, `generateHtmlAll`, `generateHTMLHeader`, `generateStyles`, `generateNavigation`, `generateSheetData`, `generateHTMLFooter`, `set/getSheetIndex`, `writeAllSheets`, `set/getGenerateSheetNavigationBlock`, `set/getUseInlineCss`, `set/getEmbedImages`, `set/getImagesRoot`, `set/getLineEnding`, `getOrientation`, `setEditHtmlCallback`, plus the table/conditional/boolean knobs | **pure PHP** (works with or without the extension); renders formatted cell values into sheet tables with merged-cell row/colspans. Fine-grained per-cell styling and image embedding are not rendered — a single shared stylesheet is emitted |
@@ -89,13 +89,52 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
 | Charts | the PhpSpreadsheet `Chart\*` object model: `Chart`, `DataSeries` (bar/column ±stacked, line, area, pie, doughnut, scatter, radar; bar/col direction), `DataSeriesValues`, `PlotArea`, `Legend`, `Title`, X/Y axis labels; `Worksheet::addChart` | mapped onto the native chart spec; series data sources are excelize formula strings |
 | Auto-filter rules | `getAutoFilter()->getColumn($col)->createRule()->setRule($op, $value)`, AND/OR join | column rules force the model path (FilterColumn XML); excelize doesn't hide rows automatically (divergence 23) |
 
+## Supported (Phase 5.2 — consumer-driven surface)
+
+| Area | API | Notes |
+|---|---|---|
+| Exceptions | `Writer\Exception`, `Reader\Exception`, `Calculation\Exception` | narrow subclasses of the flat `Compat\Exception`, so `catch (Writer\Exception)` narrows correctly **and** existing broad catches keep working; the writers and readers now throw the narrow types |
+| Reader contract | `Reader\IReader` (+ `READ_DATA_ONLY`/`SKIP_EMPTY_CELLS`/`IGNORE_ROWS_WITH_NO_CELLS`) | implemented by `Reader\Xlsx` and `Reader\Csv`; usable as a type hint |
+| Settings | `Settings::setChartRenderer/getChartRenderer/unsetChartRenderer`, libxml + cache + HTTP-client accessors | **state-only**: values round-trip so consuming code behaves, but nothing reads them back. `setChartRenderer` is deliberately accepted rather than thrown — its callers guard an HTML/PDF preview path, and throwing would break otherwise-supported workbook generation |
+| Cell addressing | `Cell\CellAddress` (`fromCellAddress`/`fromColumnAndRow`, `columnName`/`columnId`/`rowId`, `cellAddress`/`absoluteCellAddress`, `next`/`previous` row+column), `Cell\AddressRange` (`fromCellRange`, `from`/`to`, `cellRange`/`absoluteCellRange`) | immutable value objects over `Coordinate`; ranges normalise so `from()` is always top-left (`D9:B2` → `B2:D9`); navigation clamps at row 1 / column A |
+| Drawings | `Worksheet\BaseDrawing` | extracted as the genuine shared parent of `Drawing` and `MemoryDrawing` (name, description, coordinates, offsets, size, owning sheet) rather than added alongside them; attachment stays per-subclass because each sends a different payload |
+| Shared helpers | `Shared\StringHelper` (`stringIncrement`, `formatNumber`, `convertToString`, control-character escaping both ways, multibyte case/substring/count, separators), `Shared\Drawing` (points/pixels/EMU/cm/inch/degree conversions, `cellDimensionToPixels`, `pixelsToCellDimension`), `Shared\Font` (`getDefaultRowHeightByFont`, `getCharacterWidth`, auto-size method), `Shared\File` (`sysGetTempDir`, `temporaryFilename`, upload-temp-dir toggle, `fileExists`, `realpath`) | pure PHP. `Shared\File::sysGetTempDir()` is canonicalised with `realpath()` so it matches the paths `tempnam()` actually returns (macOS reports `/var/…` but creates under `/private/var/…`). `StringHelper` is verified byte-identical to real PhpSpreadsheet across every method the writers call, including `formatNumber(null) === ''` and `stringIncrement` via `str_increment()` (bare `++` on a string is deprecated in PHP 8.3+) |
+
+## Supported (Phase 5.3 — page breaks & selection)
+
+| Area | API | Notes |
+|---|---|---|
+| Page breaks | `Worksheet::setBreak(+ByColumnAndRow)`, `BREAK_NONE`/`BREAK_ROW`/`BREAK_COLUMN`/`BREAK_ROW_MAX_COLUMN` | `excelize.InsertPageBreak`/`RemovePageBreak`, applied at save like the rest of the non-streamable surface (divergence 11). The reference is normalised to the requested axis: `setBreak('O24', BREAK_ROW)` splits above row 24 only, never also left of column O |
+| Selection | `Worksheet::setSelectedCells(+setSelectedCell/ByColumnAndRow)` | excelize carries selection inside the **pane** record, not `ViewOptions`, so the existing pane state is read back and merged — selecting a cell after `freezePane()` keeps the freeze instead of silently undoing it |
+| Auto-size | `Worksheet::calculateColumnWidths()` | accepted no-op returning `$this`: auto-size is approximated in Go at save (divergence 10), so there is nothing to precompute. Callers need not branch on the engine |
+
+## Supported (Phase 5.4 — chart axis model)
+
+| Area | API | Notes |
+|---|---|---|
+| Axis | `Chart\Axis`: `setAxisOptionsProperties` (full positional signature), `setAxisNumberProperties`, `setFillParameters`, `set/getMajor+MinorGridlines`, `getAxisOptionsProperty`, `AXIS_LABELS_*`/`TICK_MARK_*`/`AXIS_ORIENTATION_*` constants | mapped onto `excelize.ChartAxis`: label suppression (`none` → `None`), `minimum`/`maximum`, `majorUnit`, `logBase`, `maxMin` → `ReverseOrder`, number format, label font colour. Bounds use pointers end-to-end so an explicit `0` is distinct from unset |
+| GridLines | `Chart\GridLines`, attached via the `Chart` constructor or `Axis::setMajorGridlines` | presence turns the gridlines on (`MajorGridLines`/`MinorGridLines`). Line colour/style, glow, shadow and soft-edge setters are accepted and round-trip, but excelize models no gridline line format |
+| Layout | `Chart\Layout`: `setShowVal` and the sibling data-label toggles, plot-area geometry accessors | `setShowVal` drives `PlotArea.ShowVal`; geometry is stored and round-trips but is not rendered |
+| ChartColor | `Chart\ChartColor`: `setColorProperties`, `EXCEL_COLOR_TYPE_*` | normalises `#rrggbb`/`rrggbb` to bare upper-case hex for excelize |
+| Chart | `getChartAxisX/Y`, `getPlotArea`, `getTitle`, `getLegend`, `getTopLeftPosition`, `setBottomRightPosition`, `render()` | gridlines passed to the constructor attach to the **Y** axis, matching PhpSpreadsheet regardless of which axis object was supplied. `setBottomRightPosition` derives an approximate pixel size (64px/column, 20px/row) since excelize sizes charts by width/height, not a second anchor. `render()` returns `false` — the value PhpSpreadsheet gives when no renderer is configured — so callers take their existing no-image branch |
+| DataSeries | `EMPTY_AS_GAP`/`EMPTY_AS_ZERO`/`EMPTY_AS_SPAN`/`DEFAULT_EMPTY_AS` | accepted for constructor parity; excelize has no display-blanks-as control |
+
+## Supported (Phase 5 cross-cutting — formula cache)
+
+| Area | API | Notes |
+|---|---|---|
+| Pre-calculated results | `Writer\Xlsx::setPreCalculateFormulas(bool)`, `DISABLE_PRECALCULATE_FORMULAE` save flag | **opt-in**: the getter reports upstream's `true` default, but the pass runs only on an explicit call, so inheriting the default never costs streaming. Numeric results only; the `t="str"` excelize forces on formula cells is corrected by a container patch so number formats still apply — see divergence 24 |
+| Recalculate-on-open | `Native::setFullCalcOnLoad(int $handle, bool)` (easy-excel extra, default **on**) | sets `calcPr/@fullCalcOnLoad`; costs one attribute and never degrades. Fixes spreadsheet applications; does nothing for readers that never calculate, which is what the cache above is for |
+
 ## Documented divergences
 
 1. **`toArray(formatData: false)` types** — values come back from excelize as
-   strings and are cast with `is_numeric()`. Text cells that *look* numeric
-   (e.g. `"1e3"` stored explicitly as a string) come back as numbers, where
-   PhpSpreadsheet preserves them. Explicitly-typed strings written in the
-   same session are safe; re-loaded files lose that distinction.
+   strings and are cast when the string is the *canonical* rendering of the
+   number, so `"1542"` becomes `1542` while `"0042"`, `"1.50"` and `" 3"` stay
+   strings. `getCalculatedValue()` follows the same rule, so a
+   `TEXT(A1,"0000")` result keeps its leading zeros. Bulk `toArray` reads still
+   use the looser `is_numeric()` cast, so a text cell that looks numeric can
+   come back as a number there.
 2. **`toArray($calculateFormulas)`** — bulk reads return raw or formatted
    values; the flag is currently honored only by `Cell::getCalculatedValue()`
    (excelize's ~535-function engine). Bulk calculated reads land in Phase 3.
@@ -180,16 +219,78 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     non-matching rows; Excel re-applies the filter on open. PhpSpreadsheet
     behaves the same. Column rules also accept at most two clauses joined by
     AND/OR (the OOXML custom-filter limit).
-24. **No pre-computed formula cache** — formula cells are written with the
-    formula but without a cached `<v>` result (PhpSpreadsheet pre-calculates
-    and stores it). Excel, LibreOffice and `getCalculatedValue()` recompute
-    on open and display the correct value; headless readers that trust the
-    cache without recalculating see a blank until they evaluate. excelize has
-    no recalculate-and-store-all step, so this is inherent to the engine.
+24. **Formula cache: opt-in and numeric-only** —
+    `Writer\Xlsx::setPreCalculateFormulas(true)` evaluates every formula at
+    save and stores the result beside it, so readers that trust the cached
+    `<v>` show values rather than blanks.
+    **Opt-in, deliberately.** The getter still reports PhpSpreadsheet's `true`
+    default for API parity, but the pass only runs when
+    `setPreCalculateFormulas()` was called explicitly: acting on the inherited
+    default would read every formula back and force a streamed workbook into
+    the full in-memory model — an OOM risk on million-row exports, and a
+    silent trade of the property this engine exists for.
+    **Numeric results only, and the check is stricter than it looks.** A text
+    or boolean result cannot be cached correctly — excelize writes a
+    shared-string *index* into `<v>`, which reads back as `0`/`1`. Those, and
+    error results, recompute on open. `ParseFloat` alone is not sufficient to
+    decide: `TEXT(A1,"0000")` yields the *string* `"0042"`, which parses as 42
+    and would be cached — and rendered — as a number, losing the padding the
+    formula exists to produce. excelize's calc engine knows the real type
+    internally (`formulaArg.Type`) but `CalcCellValue` returns only a string,
+    so a float→string→float round trip is used instead: a genuine number
+    survives it unchanged, a formatted string does not.
+    **Cell type is corrected at save.** excelize's `SetCellFormula` ends with an
+    unconditional `c.T = "str"` and exposes no way to reset it (every value
+    setter calls `removeFormula`, so writing the value afterwards deletes the
+    formula). In OOXML `t="str"` means *formula returning a string*, so a
+    cached number would lose its format — a `#,##0` total rendering `2500`
+    instead of `2,500`, and excelize's own reader takes a
+    `case "str": return c.V` path that skips formatting entirely. The saved
+    container is therefore patched, exactly as streaming auto-filters already
+    are. The patch is driven by the **exact cell references this save cached**,
+    never by scanning for numeric-looking values, so formulas already present
+    in a loaded workbook are left exactly as they were. Worksheet parts with
+    nothing to change are copied without recompressing, and the passes stage
+    through a temp file rather than memory. Both compose when a save needs
+    both.
+    Independently, `calcPr/@fullCalcOnLoad` is set by default (free, one
+    attribute): spreadsheet **applications** recalculate on open regardless.
+    Disable via `Native::setFullCalcOnLoad($handle, false)`.
 25. **Image anchoring** — drawings use one-cell anchoring (fixed size, the
     image keeps its dimensions when rows/columns resize), matching
     PhpSpreadsheet. excelize's default two-cell anchoring (image stretches
     with the cells) is not used.
+26. **`Shared\Font` takes `?object`, not `Style\Font`** — Compat's
+    `Style\Font` is bound to its owning `Style` and cannot be constructed
+    standalone, while PhpSpreadsheet callers pass whatever font object they
+    hold. The `Shared\Font`/`Shared\Drawing` helpers therefore accept any
+    object exposing `getName()`/`getSize()` and fall back to Calibri 11 for
+    anything else, rather than fataling on a type mismatch.
+27. **`Shared\Font` metrics are table-driven** — PhpSpreadsheet measures
+    rendered text with GD/afm font metrics; easy-excel uses a lookup table for
+    the common families plus a linear approximation elsewhere, consistent with
+    the save-time auto-size approximation (divergence 10).
+
+28. **Page breaks apply at save** — like other non-streamable ops, a break is
+    queued and written when the workbook is flushed. `BREAK_NONE` removes a
+    break at that reference rather than adding one, matching
+    PhpSpreadsheet's default argument.
+29. **Selection merges into panes** — excelize models selection as part of the
+    pane record. easy-excel reads the sheet's current panes back and folds the
+    selection in, so freeze and selection compose. Setting a selection on a
+    sheet with no panes writes a pane-less selection, as Excel does.
+
+30. **Chart axis coverage is what excelize models** — tick-mark style,
+    crossing point, axis orientation beyond min/max reversal, time units and
+    display units are accepted and ignored: excelize has no field for them, so
+    throwing would break charts that are otherwise correct. Manual plot-area
+    geometry (`Layout` x/y/w/h) and gridline line formatting are stored and
+    round-trip through the getters but do not affect the rendered chart.
+31. **Chart size comes from anchors, approximately** — PhpSpreadsheet anchors a
+    chart between two cells; excelize sizes it in pixels. The span is converted
+    with the OOXML default grid (64px per column, 20px per row), so the chart
+    lands in the right place at close to the right size, not byte-identically.
+
 
 ## Aliasing modes
 
@@ -234,19 +335,117 @@ php tools/compat-surface-diff.php --baseline=.compat-surface.json        # gate 
 php tools/compat-surface-diff.php --update-baseline=.compat-surface.json # bump deliberately
 ```
 
-## Not yet supported (throws a clear exception)
+## Not supported — by design (wave 5.5)
 
-- Gradient fills, diagonal/vertical/horizontal borders
-- PhpSpreadsheet's `Chart` object model (`PhpOffice\PhpSpreadsheet\Chart\*`):
-  use the native declarative API (`Worksheet::addNativeChart`) instead
-- Workbook encryption / password-protected open
-- Readers/Writers: Ods, Xls, Pdf, Slk, Gnumeric — not planned for the
-  native engine. In `strict` mode (the default with the extension) these throw
-  `UnsupportedApiException`; set `EASY_EXCEL_ALIAS=off` (or `fallback`) and
-  install the real `phpoffice/phpspreadsheet` to handle them, or convert
-  externally
-- Custom value binders (`Cell::setValueBinder`), read filters with PHP
-  callbacks — planned via declarative equivalents (PHP callbacks across the
-  CGO boundary are the documented slow path)
-- `Worksheet::getRowIterator()/getColumnIterator()` (`toArray` chunked reads
-  cover most uses)
+Verified against the shipped Compat tree (`php/src/EasyExcel/Compat`): the
+alias surface is derived by scanning that directory (`compatSurfaceClasses()`),
+so **any name without a file there throws `UnsupportedApiException` in
+`strict` mode**.
+
+Everything below is a deliberate exclusion, not a backlog item. Each entry
+says why the gap is structural and what to do instead. Waves 5.1–5.4 closed
+the rest: **49 of the 53 `PhpOffice\*` names imported across the two audited
+production apps now resolve under Compat**, and the four that do not are
+listed here.
+
+### The escape hatch
+
+None of these force an all-or-nothing choice. `EASY_EXCEL_ALIAS=fallback`
+aliases every class Compat implements and defers the rest to a real
+`phpoffice/phpspreadsheet` install, per class — so an app can generate its
+bulk exports through the native engine and keep upstream for one report that
+needs raw OOXML. `EASY_EXCEL_ALIAS=off` returns the whole request to upstream.
+The trade-off is documented under "Aliasing modes": `fallback` can mix object
+models within a single request, so keep the boundary at the export level.
+
+### 1. Custom OOXML writer parts
+
+`Writer\Xlsx\WriterPart`, `Writer\Xlsx\Worksheet`, `Shared\XMLWriter`
+
+PhpSpreadsheet builds xlsx by composing PHP writer-part classes, each
+serialising a fragment of the package; subclassing one lets an app inject
+arbitrary XML. excelize owns serialisation end to end — there is no part
+registry to hook, and no point in the pipeline where a PHP-authored fragment
+could be spliced in without re-implementing the writer in PHP, which is the
+thing the native engine exists to avoid. The two models are mutually
+exclusive.
+
+`Shared\XMLWriter` exists only to serve this pattern; nothing else in the
+audited apps uses it.
+
+**Instead:** keep the affected export on upstream via `fallback`. Anything
+expressible through the supported API (styles, charts, validations,
+conditional formats) needs no custom part.
+
+### 2. Subclassing `Spreadsheet` / `Worksheet`
+
+Compat's workbook and worksheet objects are thin facades over a handle into
+Go-side state — there is no PHP object graph holding cells, so a subclass has
+nothing to extend or intercept. Overriding a method changes what PHP asks the
+extension to do; it cannot change what the extension writes.
+
+**Instead:** `Spreadsheet::copySheet()` covers sheet duplication (the common
+reason to subclass), and the native chart/image APIs cover injection that
+would otherwise be done by overriding a writer.
+
+### 3. Chart image rendering
+
+`Chart\Renderer\*` (incl. `JpGraph`)
+
+easy-excel emits charts as real Excel chart parts, which Excel and LibreOffice
+render themselves. Rasterising a chart to PNG in PHP is a different job,
+needing a plotting library and a font stack the engine deliberately does not
+carry.
+
+**Instead:** `Settings::setChartRenderer()` is accepted and ignored (wave 5.2)
+and `Chart::render()` returns `false` (wave 5.4) — the value PhpSpreadsheet
+itself returns when no renderer is configured, so callers take their existing
+"no image available" branch rather than fataling. Charts in the generated
+xlsx are unaffected and fully rendered.
+
+### 4. `Style\ConditionalFormatting\MergedCellStyle`
+
+Resolves the effective style of one cell by folding in matching conditional
+rules and table styles. It is not a leaf class: it needs `StyleMerger`,
+`CellStyleAssessor`, `CellMatcher`, and — through
+`Worksheet::getTablesWithStylesForCell()` — the whole `Worksheet\Table`
+subsystem with its dxf style model, none of which Compat implements.
+
+Earlier revisions of this file dismissed it as "reachable only from the forked
+HTML writers". That was wrong: erp-add-ons still constructs one directly after
+the wave-5.1 re-parenting. It stays out because it is a subsystem, not because
+it is unreachable.
+
+**Instead:** `getStyle()` returns the cell's base style, and
+`getConditionalStyles()` returns the rules on a range — enough to resolve
+matches manually where an app needs the merged result.
+
+### Formats
+
+Readers/Writers: Ods, Xls, Slk, Gnumeric — not planned for the native
+engine. In `strict` mode these throw `UnsupportedApiException`; use
+`fallback`/`off` with a real `phpoffice/phpspreadsheet` install, or convert
+externally.
+
+`Writer\Pdf` is supported, and keeps upstream's shape: an **abstract** base
+carrying the HTML renderer and the page setup (`get/setPaperSize`,
+`get/setOrientation`, `get/setFont`, `get/setTempDir`, plus
+`resolvePaperSize()` / `resolveOrientation()` which fold the writer override
+together with the sheet's own page setup), with the HTML→PDF step supplied by
+a driver subclass. The consumer picks a driver by class, exactly as upstream:
+
+| Driver | Requires |
+| --- | --- |
+| `Writer\Pdf\Mpdf` | `mpdf/mpdf` |
+| `Writer\Pdf\Tcpdf` | `tecnickcom/tcpdf` |
+| `Writer\Pdf\Dompdf` | `dompdf/dompdf` |
+| `Writer\Pdf\Snappy` | `knplabs/knp-snappy` + a `wkhtmltopdf` binary |
+
+`Snappy` has no counterpart upstream: the others embed a PHP rendering engine,
+it shells out to wkhtmltopdf. Because the binary renders with a real browser
+engine it handles CSS the PHP engines do not, so it suits heavily styled
+reports; inject the Snappy instance with `setSnappy()` before saving.
+
+The polyfill requires none of these libraries — a driver whose library is
+absent throws and names the package to install. `IOFactory::createWriter()`
+does not map `'Pdf'`, again as upstream, since the base is abstract.

@@ -21,6 +21,14 @@ class DataSeries
     public const GROUPING_PERCENT_STACKED = 'percentStacked';
     public const GROUPING_STANDARD = 'standard';
 
+    public const EMPTY_AS_GAP = 'gap';
+
+    public const EMPTY_AS_ZERO = 'zero';
+
+    public const EMPTY_AS_SPAN = 'span';
+
+    public const DEFAULT_EMPTY_AS = self::EMPTY_AS_GAP;
+
     public const DIRECTION_BAR = 'bar';
     public const DIRECTION_COL = 'col';
 

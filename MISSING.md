@@ -1,74 +1,95 @@
 # Not implemented
 
-PhpSpreadsheet APIs the polyfill does **not** provide. Found by running real
-PhpSpreadsheet code against it (`data/public/index.php` is one such probe);
-COMPAT.md documents what *is* supported and where supported behavior
-intentionally diverges. Calling anything below fails loudly (class not
-found / clear exception) — never with a silently different file.
+PhpSpreadsheet APIs the polyfill does **not** provide. COMPAT.md documents
+what *is* supported and where supported behaviour intentionally diverges.
+Calling anything below fails loudly (class not found / clear exception) —
+never with a silently different file.
 
-**An implementation plan for closing these gaps exists**: PLAN.md §13
-"Phase 4 — compat completion" orders everything below into four ROI waves
-with verified excelize APIs and effort estimates. Items land there and get
-deleted here.
+**Phase 5 is complete.** Waves 5.1–5.5 (PLAN.md §13) closed the gaps found by
+auditing two production Symfony report apps against the shim: **49 of the 53
+`PhpOffice\*` names those apps import now resolve under Compat**. What remains
+is deliberate — see "By design" below and the matching section in COMPAT.md,
+which carries the full rationale for each.
 
-## Found by the ERP report probe (`data/public/index.php`)
+## By design (will not be implemented)
 
-Closed by wave 4.4 (2026-06-13): rich-text cell values with per-run fonts,
-GD `MemoryDrawing`, the PhpSpreadsheet `Chart\*` object model
-(`Worksheet::addChart`), and auto-filter column rules
-(`getAutoFilter()->getColumn()`). This completes Phase 4 — MISSING.md now
-lists only items that stay out by design.
+These are structural mismatches with a Go/excelize engine, not backlog items.
+`EASY_EXCEL_ALIAS=fallback` defers any of them to a real
+`phpoffice/phpspreadsheet` install per class, so an app can keep its bulk
+exports native and route one report to upstream.
 
-Closed by wave 4.3 (2026-06-13): insert/remove rows and columns,
-`createSheet($index)`, sheet copy (`Spreadsheet::copySheet` extra), sheet
-views (gridlines/zoom/RTL/tab color), headers/footers, page margins — plus
-a correctness fix: post-save mutations were silently dropped by excelize
-on stream-flushed sheets; they now reopen first (COMPAT.md §21).
+- **Custom OOXML writer parts** — `Writer\Xlsx\WriterPart`,
+  `Writer\Xlsx\Worksheet`, `Shared\XMLWriter`. excelize owns serialisation
+  end to end; there is no part registry to hook (COMPAT.md §1)
+- **Subclassing `Spreadsheet` / `Worksheet`** — Compat objects are handle
+  facades over Go state, with no PHP object graph to extend (COMPAT.md §2)
+- **Chart image rendering** — `Chart\Renderer\*` (incl. `JpGraph`). Charts
+  are emitted as native Excel chart parts; `Chart::render()` returns false so
+  callers take their no-image branch (COMPAT.md §3)
+- **`Style\ConditionalFormatting\MergedCellStyle`** — needs `StyleMerger`,
+  `CellStyleAssessor`, `CellMatcher` and the whole `Worksheet\Table` subsystem
+  (COMPAT.md §4)
+- **`Writer\Html` subclassing** — the Compat writer is an independent pure-PHP
+  renderer, not a port, so overriding its protected internals does not
+  compose. The public writer API is supported; wave 5.1 showed the audited
+  apps never needed the inheritance at all
+- Readers/writers for Ods, Xls, Slk, Gnumeric
+- **`getCellCollection()`** — cell data lives in Go, not in a PHP collection
 
-Closed by wave 4.2 (2026-06-13): `getDefaultStyle()`, row/column iterators,
-`IReadFilter`, style read-back from loaded files + `duplicateStyle`,
-validation/conditional/defined-name/auto-filter getters.
+## Open gaps (no observed consumer yet)
 
-Closed by wave 4.1 (2026-06-13): custom value binders, document properties
-(`getProperties()`; `setManager` is kept PHP-side only — excelize has no
-field for it), print titles + print area, the `getConditionalStyles()`
-getter, workbook encryption (writer/reader `setPassword()`, easy-excel
-extras), gradient fills, diagonal borders, `unmergeCells` + merge getter,
-and calculation-cache no-ops.
+Not exercised by either audited app, so unprioritised rather than refused:
 
-## Known gaps (by area)
-
-**Reading / introspection**
-- `getCellCollection()` / existing-cells-only iteration flags
 - Auto-filter **column rule** introspection (range getter landed in 4.2)
-
-**Structure editing**
 - `removeConditionalStyles`
 - `clone $sheet` / `Spreadsheet::addExternalSheet` (use
   `Spreadsheet::copySheet` instead)
-
-**Content types**
 - Vertical/horizontal borders (conditional-formatting-only border sides)
 - Header/footer images, cell background images (file & memory drawings
   anchored to cells are supported)
-
-**Formats & security**
-- Readers/writers: Ods, Xls, Html, Pdf, Slk, Gnumeric — install the real
-  `phpoffice/phpspreadsheet` alongside (the alias bootstrap stays dormant
-  and defers to it) or convert externally
 - 63 of PhpSpreadsheet's 529 calculation functions (list in FORMULAS.md)
 
-**Misc**
-- `Calculation` array-formula toggles (the cache controls are accepted
-  no-ops since wave 4.1) — calculation is delegated to excelize
-- Auto-filter does not hide non-matching rows (column rules are recorded;
-  Excel re-applies on open — COMPAT.md §23)
-- **Pre-computed formula cache** — formula cells are written without a
-  cached `<v>` result, so spreadsheet apps that don't auto-recalculate on
-  open (some headless readers) show them blank until recalculated. Excel,
-  LibreOffice and `getCalculatedValue()` evaluate them correctly. PhpSpreadsheet
-  pre-calculates and stores the value; excelize has no recalculate-and-cache
-  step (COMPAT.md §24).
+## Behavioural divergences worth planning around
+
+Not missing APIs — these produce wrong-looking output even once every class
+exists, so they outrank the open gaps above for anyone migrating a
+report-heavy app:
+
+- **Formula cache is numeric-only** — *largely fixed*. Pre-calculation is now
+  wired to `Writer\Xlsx::setPreCalculateFormulas()` and defaults on, matching
+  PhpSpreadsheet, and `calcPr/@fullCalcOnLoad` is set by default. What remains:
+  excelize cannot store a **text or boolean** formula result correctly (it
+  writes a shared-string index into `<v>`), so those still recompute on open.
+  Numeric results — the overwhelming majority in the audited reports — are
+  cached (COMPAT.md §24)
+- **Style-after-write degrade** — styling rows *after* writing them queues the
+  work and triggers the one-time serialize-and-reopen at save, forfeiting the
+  streaming win. Both audited apps do this for subtotal/total rows. No API is
+  missing; the throughput claim just does not hold for that pattern
+  (COMPAT.md §9)
+- **Auto-filter does not hide rows** — column rules are recorded; Excel
+  re-applies on open (COMPAT.md §23)
+- **`Calculation` array-formula toggles** — the cache controls are accepted
+  no-ops since wave 4.1; calculation is delegated to excelize
+
+## Wave history
+
+Phase 5 (2026-08-19), scoped from the two-app audit:
+
+| Wave | Closed |
+|---|---|
+| 5.1 | `Shared\StringHelper`; consumer-side re-parenting of both `HTMLWriter`s from `Writer\Html` to `BaseWriter` |
+| 5.2 | `Writer`/`Reader`/`Calculation` exceptions, `Reader\IReader`, `Settings`, `Cell\CellAddress`+`AddressRange`, `Worksheet\BaseDrawing`, `Shared\File`+`Font`+`Drawing` |
+| 5.3 | `setBreak()`, `setSelectedCells()`, `calculateColumnWidths()` |
+| 5.4 | Chart axis model: `Chart\Axis`, `GridLines`, `Layout`, `ChartColor`, constructor axis params, `DataSeries::EMPTY_AS_*` |
+| 5.5 | Documentation of the by-design exclusions above |
+
+Phase 4 (2026-06-13) closed the probe-driven gaps in four waves: value
+binders, document properties, print layout, encryption, gradient fills and
+diagonal borders (4.1); iterators, read filters, style read-back and
+introspection (4.2); row/column/sheet structure editing, sheet views,
+headers/footers and margins (4.3); rich text, memory drawings, the
+`Chart\*` object model and auto-filter column rules (4.4).
 
 ## Verified against PhpSpreadsheet
 

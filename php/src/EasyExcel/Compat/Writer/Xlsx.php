@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace EasyExcel\Compat\Writer;
 
-use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\StreamPath;
 use EasyExcel\Compat\Spreadsheet;
 use EasyExcel\Native;
@@ -42,6 +41,13 @@ class Xlsx extends BaseWriter
         $this->processFlags($flags);
         $this->spreadsheet->flushAll();
         $handle = $this->spreadsheet->getHandle();
+
+        // Opt-in only. PhpSpreadsheet pre-calculates by default, but doing so
+        // here reads every formula back and forces a streamed workbook into
+        // the full in-memory model — an OOM risk on million-row exports. The
+        // getter still reports upstream's default; only an explicit
+        // setPreCalculateFormulas() call enables the pass (COMPAT.md §24).
+        Native::setPrecalculateFormulas($handle, $this->shouldPreCalculateFormulas());
 
         if (\is_string($filename) && !StreamPath::isWrapped($filename)) {
             Native::saveXlsx($handle, $filename, $this->password);

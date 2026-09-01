@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace EasyExcel\Compat\Reader;
 
-use EasyExcel\Compat\Exception;
 use EasyExcel\Compat\Shared\StreamPath;
 use EasyExcel\Compat\Spreadsheet;
 use EasyExcel\Native;
 
-class Xlsx
+class Xlsx implements IReader
 {
     private bool $readDataOnly = false;
 
