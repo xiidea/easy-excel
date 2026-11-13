@@ -209,6 +209,14 @@ func (w *Workbook) CopySheetTo(from, newName string) (int, error) {
 	w.sheets[newName] = &sheetState{
 		maxRow: src.maxRow, maxCol: src.maxCol, dimsKnown: src.dimsKnown,
 	}
+	// excelize copies the worksheet's extLst and its rels, so the copy
+	// carries the same file sparklines and pivot table links as its source
+	if ext, ok := w.loadedSparklines[from]; ok {
+		w.loadedSparklines[newName] = ext
+	}
+	if pivots, ok := w.loadedPivots[from]; ok {
+		w.loadedPivots[newName] = pivots
+	}
 	return idx, nil
 }
 

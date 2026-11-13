@@ -289,3 +289,85 @@ func TestResolvePart(t *testing.T) {
 		}
 	}
 }
+
+// A set that fails part-way must stay tracked: the retry replaces the tables
+// already added instead of duplicating them.
+func TestSetPivotTablesPartialFailureIsRetried(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	if _, err := w.GetCell("Data", "A1", GetRaw); err != nil { // random mode: ops apply at once
+		t.Fatal(err)
+	}
+	second := `{"name":"B","sourceSheet":"%s","sourceRange":"A1:C4","location":"H3","data":[{"field":"Amount"}]}`
+	first := fmt.Sprintf(salesPivot, "A")
+	if err := w.SetPivotTables("Data", "["+first+","+fmt.Sprintf(second, "Gone")+"]"); err == nil {
+		t.Fatal("a missing source sheet must fail")
+	}
+	if err := w.SetPivotTables("Data", "["+first+","+fmt.Sprintf(second, "Data")+"]"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "retry.xlsx")
+	if err := w.SaveXlsx(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := pivotNames(t, path, "Data"); len(got) != 2 || got[0] != "A" || got[1] != "B" {
+		t.Errorf("after retry = %v, want [A B]", got)
+	}
+}
+
+// Deletion is by name, so a generated table may not take the name of a table
+// the loaded file carried: replacing it later would delete the file's own.
+func TestSetPivotTablesRejectsNameOfLoadedTable(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	spec := "[" + fmt.Sprintf(salesPivot, "PivotTable1") + "]"
+	if err := w.SetPivotTables("Data", spec); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src.xlsx")
+	if err := w.SaveXlsx(src, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.SetPivotTables("Data", spec); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v, want a name clash", err)
+	}
+	out := filepath.Join(t.TempDir(), "out.xlsx")
+	if err := r.SaveXlsx(out, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := pivotNames(t, out, "Data"); len(got) != 1 {
+		t.Errorf("tables = %v, want the file's own one only", got)
+	}
+}
+
+func TestSetPivotTablesRejectsSingleCellSource(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	spec := `[{"name":"P","sourceSheet":"Worksheet","sourceRange":"$A$1","location":"H3","data":[{"field":"x"}]}]`
+	if err := w.SetPivotTables("Worksheet", spec); err == nil {
+		t.Error("a one-cell source range must fail at the call site")
+	}
+}

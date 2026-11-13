@@ -195,3 +195,42 @@ func TestExtElement(t *testing.T) {
 		t.Errorf("uri outside an ext element = %q", got)
 	}
 }
+
+func TestWithRootNamespaces(t *testing.T) {
+	part := []byte(`<?xml version="1.0"?><worksheet xmlns="main" xmlns:x14="u14" xmlns:xr2="rev2&amp;x"><sheetData/></worksheet>`)
+	got := withRootNamespaces(`<ext xmlns:x14="u14" uri="{U}"><x14:g xr2:uid="1"/></ext>`, part)
+	want := `<ext xmlns:xr2="rev2&amp;x" xmlns:x14="u14" uri="{U}"><x14:g xr2:uid="1"/></ext>`
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+	if same := withRootNamespaces(`<ext uri="{U}"/>`, []byte("not xml <")); same != `<ext uri="{U}"/>` {
+		t.Errorf("an unreadable part must leave the element alone, got %s", same)
+	}
+}
+
+func TestCopySheetCarriesLoadedSparklines(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fillRows(t, w, "Worksheet", 1, 3)
+	if err := w.AddSparklineGroup("Worksheet", `{"type":"line","sparklines":[{"location":"E2","dataRange":"Worksheet!A2:C2"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src.xlsx")
+	if err := w.SaveXlsx(src, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if _, err := r.CopySheetTo("Worksheet", "Copy"); err != nil {
+		t.Fatal(err)
+	}
+	if ext, _ := r.LoadedSparklineXML("Copy"); !strings.Contains(ext, "sparklineGroup") {
+		t.Error("the copy carries the source's sparklines in the file, so it must report them")
+	}
+}

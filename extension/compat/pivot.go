@@ -56,8 +56,13 @@ func TranslatePivotTable(targetSheet, jsonSpec string) (*excelize.PivotTableOpti
 		}
 	}
 	source := strings.ReplaceAll(spec.SourceRange, "$", "")
-	if _, _, err := splitPivotRange(source); err != nil {
+	tl, br, err := splitPivotRange(source)
+	if err != nil {
 		return nil, fmt.Errorf("easy-excel: pivot table %q source range: %w", spec.Name, err)
+	}
+	if tl == br {
+		// excelize rejects it too, but only when the table is applied
+		return nil, fmt.Errorf("easy-excel: pivot table %q source range %q is a single cell", spec.Name, spec.SourceRange)
 	}
 	location, err := pivotLocation(spec.Location)
 	if err != nil {

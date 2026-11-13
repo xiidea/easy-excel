@@ -855,10 +855,17 @@ class Worksheet
                 . ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
                 . '<extLst>' . $ext . '</extLst></worksheet>',
             );
-            if ($xml === false) {
-                throw new Exception("Could not parse the sparklines of worksheet \"{$this->title}\"");
+            try {
+                if ($xml === false) {
+                    throw new Exception("Could not parse the sparklines of worksheet \"{$this->title}\"");
+                }
+                (new SparklinesReader($this, $xml))->load();
+            } catch (\Throwable $e) {
+                // not half-loaded: groups left unfrozen would be re-sent on save
+                $this->sparklineGroups = null;
+
+                throw $e;
             }
-            (new SparklinesReader($this, $xml))->load();
             foreach ($this->sparklineGroups as $group) {
                 $group->markWritten();
             }
@@ -1021,6 +1028,8 @@ class Worksheet
         if ($specs === [] && !$this->pivotTablesWritten) {
             return;
         }
+        // set first: a call that fails may still have written part of the set
+        $this->pivotTablesWritten = true;
         Native::setPivotTables($this->workbookHandle(), $this->title, $specs);
         $this->pivotTablesWritten = $specs !== [];
     }

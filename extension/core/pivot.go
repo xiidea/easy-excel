@@ -65,26 +65,51 @@ func (w *Workbook) applyOpPivotTables(sheet string, op pendingOp) error {
 	if err := json.Unmarshal([]byte(op.s1), &specs); err != nil {
 		return err
 	}
-	for _, name := range prev.names {
-		if err := w.f.DeletePivotTable(sheet, name); err != nil {
+	// live names the generated tables actually in the file as the op
+	// progresses. A failure part-way records exactly those under a spec that
+	// never matches, so the next op deletes them instead of duplicating them.
+	live := append([]string(nil), prev.names...)
+	record := func(spec string) {
+		if len(live) == 0 {
+			delete(w.pivots, sheet)
+			return
+		}
+		w.pivots[sheet] = pivotSet{spec: spec, names: live}
+	}
+	for len(live) > 0 {
+		if err := w.f.DeletePivotTable(sheet, live[0]); err != nil {
+			record("")
 			return err
 		}
+		live = live[1:]
 	}
-	delete(w.pivots, sheet)
-	set := pivotSet{spec: op.s1}
+	// What is left on the sheet came with the loaded file. Deletion is by
+	// name, so a generated table sharing one of those names would take the
+	// file's own table with it on the next replacement. A sheet excelize
+	// cannot list (non-worksheet cache sources) skips the check.
+	foreign := map[string]bool{}
+	if existing, err := w.f.GetPivotTables(sheet); err == nil {
+		for _, pt := range existing {
+			foreign[pt.Name] = true
+		}
+	}
 	for _, raw := range specs {
 		opts, err := compat.TranslatePivotTable(sheet, string(raw))
+		if err == nil && foreign[opts.Name] {
+			err = fmt.Errorf("easy-excel: pivot table %q already exists on %s", opts.Name, sheet)
+		}
+		if err == nil {
+			if err = w.f.AddPivotTable(opts); err != nil {
+				err = fmt.Errorf("easy-excel: pivot table %q: %w", opts.Name, err)
+			}
+		}
 		if err != nil {
+			record("")
 			return err
 		}
-		if err := w.f.AddPivotTable(opts); err != nil {
-			return fmt.Errorf("easy-excel: pivot table %q: %w", opts.Name, err)
-		}
-		set.names = append(set.names, opts.Name)
+		live = append(live, opts.Name)
 	}
-	if len(set.names) > 0 {
-		w.pivots[sheet] = set
-	}
+	record(op.s1)
 	return nil
 }
 
@@ -92,14 +117,6 @@ const (
 	relTypePivotTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	relTypePivotCache = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 )
-
-// typedRelsXML is relsXML plus the relationship type.
-type typedRelsXML struct {
-	Relationship []struct {
-		Target string `xml:"Target,attr"`
-		Type   string `xml:"Type,attr"`
-	} `xml:"Relationship"`
-}
 
 // loadedPivot is one pivot table a source file carried: the raw
 // pivotTableDefinition part and its pivotCacheDefinition ("" if missing).
@@ -156,7 +173,7 @@ func relTargets(f *excelize.File, owner, relType string) []string {
 	if raw == nil {
 		return nil
 	}
-	var rels typedRelsXML
+	var rels relsXML
 	if xml.Unmarshal(raw, &rels) != nil {
 		return nil
 	}

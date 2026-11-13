@@ -313,6 +313,38 @@ return [
         T::throws(Exception::class, fn () => $b->build($s->getSheetByName('Report'), 'A3'), 'no data field');
     },
 
+    'pivot: builder accepts numeric header names' => function (): void {
+        $s = new Spreadsheet();
+        $data = $s->getActiveSheet()->setTitle('Data');
+        $data->fromArray([['Region', 2023, 2024], ['East', 10, 12]]);
+        $t = (new PivotTableBuilder($data, 'A1:C2'))->addRowField('Region')->addDataField('2024')
+            ->build($s->createSheet(), 'A3');
+        T::same(['Region', '2023', '2024'], $t->getCacheDefinition()->getCacheFields());
+        T::same(['12'], $t->getCacheDefinition()->getSharedItems('2024'), 'year columns keep their items');
+    },
+
+    'pivot: builder reads header names as formatted text' => function (): void {
+        $s = pivotSalesWorkbook();
+        new PivotTableBuilder($s->getSheetByName('Data'), 'A1:C5');
+        $reads = EasyExcelFake::calls('read_rows');
+        T::same(false, \end($reads)[1][4], 'not the raw read, which coerces "007" to 7');
+    },
+
+    'pivot: a failed write still counts as written, so clearing reaches the extension' => function (): void {
+        $s = pivotSalesWorkbook();
+        $report = $s->getSheetByName('Report');
+        $report->addPivotTable((new PivotTable('Bad'))->setGenerated(true)->setLocation('A3')->setCacheDefinition(
+            (new PivotCacheDefinition(1))->setSourceWorksheet('Data')->setSourceRange('A1:C5'),
+        ));
+        EasyExcelFake::$failPivotTables = true;
+        T::throws(\Throwable::class, fn () => pivotSave($s));
+        EasyExcelFake::$failPivotTables = false;
+        $report->removePivotTableCollection();
+        pivotSave($s);
+        $calls = EasyExcelFake::calls('set_pivot_tables');
+        T::same([], \end($calls)[1][2], 'the partly written set is cleared');
+    },
+
     // ------------------------------------------------- writing generated pivots
 
     'pivot: nothing is sent until save, then the spec reaches the extension' => function (): void {

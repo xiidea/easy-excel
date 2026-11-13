@@ -70,11 +70,46 @@ func (w *Workbook) LoadedSparklineXML(sheet string) (string, error) {
 func scanLoadedSparklines(f *excelize.File) map[string]string {
 	out := map[string]string{}
 	for sheet, part := range pkgSheetParts(f) {
-		if ext := extElement(pkgPart(f, part), extURISparklineGroups); ext != "" {
-			out[sheet] = ext
+		data := pkgPart(f, part)
+		if ext := extElement(data, extURISparklineGroups); ext != "" {
+			out[sheet] = withRootNamespaces(ext, data)
 		}
 	}
 	return out
+}
+
+// withRootNamespaces makes an element cut out of a part self-contained: the
+// prefixes declared on the part's root element (x14, xr2, a prefixed main
+// namespace, ...) are redeclared on the element unless it declares them
+// itself. Without them a parser sees every such prefix as undefined.
+func withRootNamespaces(element string, part []byte) string {
+	tagEnd := strings.IndexByte(element, '>')
+	nameEnd := strings.IndexAny(element, " \t\r\n/>")
+	if tagEnd < 0 || nameEnd < 0 {
+		return element
+	}
+	dec := xml.NewDecoder(bytes.NewReader(part))
+	var decls strings.Builder
+	for {
+		tok, err := dec.RawToken()
+		if err != nil {
+			return element
+		}
+		root, ok := tok.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		for _, a := range root.Attr {
+			if a.Name.Space != "xmlns" || strings.Contains(element[:tagEnd], "xmlns:"+a.Name.Local+"=") {
+				continue
+			}
+			decls.WriteString(" xmlns:" + a.Name.Local + `="`)
+			_ = xml.EscapeText(&decls, []byte(a.Value))
+			decls.WriteByte('"')
+		}
+		break
+	}
+	return element[:nameEnd] + decls.String() + element[nameEnd:]
 }
 
 // pkgSheetParts maps sheet names to worksheet part paths from the workbook

@@ -1,6 +1,6 @@
 module github.com/xiidea/easy-excel/extension
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/dunglas/frankenphp v1.13.5

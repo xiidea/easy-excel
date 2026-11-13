@@ -21,7 +21,8 @@ use EasyExcel\Compat\Worksheet\Worksheet;
 class Sparklines
 {
     private const SPARKLINE_URI = '{05C60535-1F16-4fd2-B633-F4F36F0B64E0}';
-    private const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
+    private const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+    private const X14 ='http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
     private const XM = 'http://schemas.microsoft.com/office/excel/2006/main';
 
     public function __construct(private readonly Worksheet $worksheet, private readonly \SimpleXMLElement $worksheetXml)
@@ -30,10 +31,16 @@ class Sparklines
 
     public function load(): void
     {
-        if (!isset($this->worksheetXml->extLst->ext)) {
+        // by namespace, so a prefixed main namespace (<x:ext>) is found too;
+        // the plain lookup covers XML without any namespace
+        $extLst = $this->worksheetXml->children(self::MAIN)->extLst;
+        if (!isset($extLst->ext)) {
+            $extLst = $this->worksheetXml->extLst;
+        }
+        if (!isset($extLst->ext)) {
             return;
         }
-        foreach ($this->worksheetXml->extLst->ext as $ext) {
+        foreach ($extLst->ext as $ext) {
             if ((string) ($ext->attributes()['uri'] ?? '') !== self::SPARKLINE_URI) {
                 continue;
             }

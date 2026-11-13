@@ -93,6 +93,8 @@ class PivotTableBuilder
             ->setSourceRange($this->sourceRange)
             ->setCacheFields($this->fieldNames);
         foreach ($this->distinctValues() as $fieldName => $values) {
+            // a numeric header ("2024") comes back as an int array key
+            $fieldName = (string) $fieldName;
             $cache->setSharedItems($fieldName, $values);
             if (isset($this->groups[$fieldName])) {
                 $cache->setFieldGroup($fieldName, $this->groups[$fieldName]);
@@ -156,7 +158,9 @@ class PivotTableBuilder
 
         return \array_map(
             static fn (mixed $v): string => StringHelper::convertToString($v, false),
-            $this->readRows($startCol, $headerRow, $endCol, $headerRow)[0] ?? [],
+            // formatted text: it is what excelize resolves field names against,
+            // and a raw read would turn a text header like "007" into 7
+            $this->readRows($startCol, $headerRow, $endCol, $headerRow, true)[0] ?? [],
         );
     }
 
@@ -180,14 +184,14 @@ class PivotTableBuilder
     }
 
     /** @return list<list<mixed>> raw values (formulas as source), like Cell::getValue() */
-    private function readRows(int $startCol, int $startRow, int $endCol, int $endRow): array
+    private function readRows(int $startCol, int $startRow, int $endCol, int $endRow, bool $formatted = false): array
     {
         $range = Coordinate::stringFromColumnIndex($startCol) . $startRow
             . ':' . Coordinate::stringFromColumnIndex($endCol) . $endRow;
 
         return \array_map(
             'array_values',
-            \array_values($this->sourceWorksheet->rangeToArray($range, null, false, false)),
+            \array_values($this->sourceWorksheet->rangeToArray($range, null, false, $formatted)),
         );
     }
 

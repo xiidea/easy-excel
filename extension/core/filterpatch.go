@@ -37,6 +37,7 @@ type relsXML struct {
 	Relationship []struct {
 		ID     string `xml:"Id,attr"`
 		Target string `xml:"Target,attr"`
+		Type   string `xml:"Type,attr"`
 	} `xml:"Relationship"`
 }
 
