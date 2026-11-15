@@ -95,7 +95,7 @@ jobs:
           # Pinned to a patch release, not a minor range: the runner's
           # toolchain cache served 1.26.5, which carries GO-2026-6088
           # (encoding/xml) and fails govulncheck.
-          go-version: "1.27.3"
+          go-version: "1.27.4"
           cache-dependency-path: extension/go.sum
       - run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest

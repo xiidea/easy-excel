@@ -13,7 +13,7 @@
 #   docker build -t frankenphp-easy-excel . # full custom FrankenPHP
 
 ARG PHP_VERSION=8.5
-ARG GO_VERSION=1.27.3
+ARG GO_VERSION=1.27.4
 
 # --- tests --------------------------------------------------------------------
 

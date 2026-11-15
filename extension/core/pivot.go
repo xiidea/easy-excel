@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/xuri/excelize/v2"
 
@@ -31,24 +32,52 @@ type pivotSet struct {
 
 // SetPivotTables queues the replacement of sheet's generated pivot tables
 // with jsonSpecs (a JSON list, see compat.TranslatePivotTable). Specs are
-// validated now so a bad table fails at the call site.
+// validated now so a bad table fails at the call site. Names compare
+// case-insensitively, as they do in Excel, and may not repeat one another or
+// a table the loaded file already has on the sheet.
 func (w *Workbook) SetPivotTables(sheet, jsonSpecs string) error {
 	var specs []json.RawMessage
 	if err := json.Unmarshal([]byte(jsonSpecs), &specs); err != nil {
 		return fmt.Errorf("easy-excel: invalid pivot table list: %w", err)
 	}
-	seen := map[string]bool{}
+	seen := w.loadedPivotNames(sheet)
 	for _, raw := range specs {
 		opts, err := compat.TranslatePivotTable(sheet, string(raw))
 		if err != nil {
 			return err
 		}
-		if seen[opts.Name] {
+		switch loaded, dup := seen[pivotNameKey(opts.Name)]; {
+		case dup && loaded:
+			return fmt.Errorf("easy-excel: pivot table %q already exists on %s", opts.Name, sheet)
+		case dup:
 			return fmt.Errorf("easy-excel: duplicate pivot table name %q on %s", opts.Name, sheet)
 		}
-		seen[opts.Name] = true
+		seen[pivotNameKey(opts.Name)] = false
 	}
 	return w.queueOp(sheet, pendingOp{kind: opPivotTables, s1: jsonSpecs})
+}
+
+// pivotNameKey folds a pivot table name for comparison: Excel treats names
+// that differ only by case as the same table.
+func pivotNameKey(name string) string {
+	return strings.ToUpper(name)
+}
+
+// loadedPivotNames returns the folded names of the pivot tables the loaded
+// file has on sheet, each mapped to true.
+func (w *Workbook) loadedPivotNames(sheet string) map[string]bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	names := map[string]bool{}
+	for _, p := range w.loadedPivots[sheet] {
+		var def struct {
+			Name string `xml:"name,attr"`
+		}
+		if xml.Unmarshal([]byte(p.Table), &def) == nil && def.Name != "" {
+			names[pivotNameKey(def.Name)] = true
+		}
+	}
+	return names
 }
 
 // applyOpPivotTables executes a queued pivot-table replacement in
@@ -65,26 +94,63 @@ func (w *Workbook) applyOpPivotTables(sheet string, op pendingOp) error {
 	if err := json.Unmarshal([]byte(op.s1), &specs); err != nil {
 		return err
 	}
-	for _, name := range prev.names {
-		if err := w.f.DeletePivotTable(sheet, name); err != nil {
-			return err
+	// live names the generated tables actually in the file as the op
+	// progresses. A failure part-way records exactly those under a spec that
+	// never matches, so the next op deletes them instead of duplicating them.
+	live := append([]string(nil), prev.names...)
+	record := func(spec string) {
+		if len(live) == 0 {
+			delete(w.pivots, sheet)
+			return
 		}
+		w.pivots[sheet] = pivotSet{spec: spec, names: live}
 	}
-	delete(w.pivots, sheet)
-	set := pivotSet{spec: op.s1}
+	for len(live) > 0 {
+		if err := w.f.DeletePivotTable(sheet, live[0]); err != nil {
+			record("")
+			return fmt.Errorf("easy-excel: replacing pivot table %q on %s: %w", live[0], sheet, err)
+		}
+		live = live[1:]
+	}
+	if len(specs) == 0 { // a pure clear has nothing to check or add
+		record(op.s1)
+		return nil
+	}
+	// What is left on the sheet came with the loaded file. Deletion is by
+	// name, so a generated table sharing one of those names would take the
+	// file's own table with it on the next replacement. excelize's
+	// DeletePivotTable lists the sheet's tables first, so on a sheet it cannot
+	// list (a table with a non-worksheet cache source) a generated table could
+	// never be replaced or cleared again: refuse it here, before anything is
+	// written, rather than fail every later save (COMPAT.md divergence 34).
+	existing, err := w.f.GetPivotTables(sheet)
+	if err != nil {
+		return fmt.Errorf("easy-excel: cannot add pivot tables to %s, its existing pivot tables are unreadable: %w", sheet, err)
+	}
+	foreign := map[string]bool{}
+	for _, pt := range existing {
+		foreign[pivotNameKey(pt.Name)] = true
+	}
 	for _, raw := range specs {
 		opts, err := compat.TranslatePivotTable(sheet, string(raw))
+		if err == nil && foreign[pivotNameKey(opts.Name)] {
+			err = fmt.Errorf("easy-excel: pivot table %q already exists on %s", opts.Name, sheet)
+		}
+		if err == nil {
+			// With the options TranslatePivotTable produces, AddPivotTable
+			// validates the ranges and header row before its first write and
+			// has no failure path after it, so a failed add leaves no parts.
+			if err = w.f.AddPivotTable(opts); err != nil {
+				err = fmt.Errorf("easy-excel: pivot table %q: %w", opts.Name, err)
+			}
+		}
 		if err != nil {
+			record("")
 			return err
 		}
-		if err := w.f.AddPivotTable(opts); err != nil {
-			return fmt.Errorf("easy-excel: pivot table %q: %w", opts.Name, err)
-		}
-		set.names = append(set.names, opts.Name)
+		live = append(live, opts.Name)
 	}
-	if len(set.names) > 0 {
-		w.pivots[sheet] = set
-	}
+	record(op.s1)
 	return nil
 }
 
@@ -92,14 +158,6 @@ const (
 	relTypePivotTable = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable"
 	relTypePivotCache = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition"
 )
-
-// typedRelsXML is relsXML plus the relationship type.
-type typedRelsXML struct {
-	Relationship []struct {
-		Target string `xml:"Target,attr"`
-		Type   string `xml:"Type,attr"`
-	} `xml:"Relationship"`
-}
 
 // loadedPivot is one pivot table a source file carried: the raw
 // pivotTableDefinition part and its pivotCacheDefinition ("" if missing).
@@ -156,7 +214,7 @@ func relTargets(f *excelize.File, owner, relType string) []string {
 	if raw == nil {
 		return nil
 	}
-	var rels typedRelsXML
+	var rels relsXML
 	if xml.Unmarshal(raw, &rels) != nil {
 		return nil
 	}

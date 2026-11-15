@@ -313,6 +313,68 @@ return [
         T::throws(Exception::class, fn () => $b->build($s->getSheetByName('Report'), 'A3'), 'no data field');
     },
 
+    'pivot: builder accepts numeric header names' => function (): void {
+        $s = new Spreadsheet();
+        $data = $s->getActiveSheet()->setTitle('Data');
+        $data->fromArray([['Region', 2023, 2024], ['East', 10, 12]]);
+        $t = (new PivotTableBuilder($data, 'A1:C2'))->addRowField('Region')->addDataField('2024')
+            ->build($s->createSheet(), 'A3');
+        T::same(['Region', '2023', '2024'], $t->getCacheDefinition()->getCacheFields());
+        T::same(['12'], $t->getCacheDefinition()->getSharedItems('2024'), 'year columns keep their items');
+    },
+
+    'pivot: builder reads header names as formatted text' => function (): void {
+        $s = pivotSalesWorkbook();
+        new PivotTableBuilder($s->getSheetByName('Data'), 'A1:C5');
+        $reads = \array_slice(EasyExcelFake::calls('read_rows'), -2);
+        T::same(false, $reads[0][1][4], 'names: not the raw read, which coerces "007" to 7');
+        T::same(true, $reads[1][1][4], 'then the raw values, for aliases');
+    },
+
+    'pivot: a header is addressable by its raw value as well as its displayed text' => function (): void {
+        $s = new Spreadsheet();
+        $data = $s->getActiveSheet()->setTitle('Data');
+        $data->fromArray([['Region', 2024], ['East', 12]]);
+        EasyExcelFake::$displayText = ['2024' => '2,024'];
+        $b = new PivotTableBuilder($data, 'A1:B2');
+        EasyExcelFake::$displayText = [];
+        $t = $b->addRowField('Region')->addDataField('2024')->build($s->createSheet(), 'A3');
+        T::same(['Region', '2,024'], $t->getCacheDefinition()->getCacheFields(), 'named as excelize will read it');
+        T::same('Sum of 2,024', $t->getFields()[1]->getDataFieldCaption());
+        $b->addDataField('2,024');
+        T::throws(Exception::class, fn () => $b->addDataField('2.024'), 'neither form');
+    },
+
+    'pivot: an empty header fails the build, not the save' => function (): void {
+        $s = new Spreadsheet();
+        $data = $s->getActiveSheet()->setTitle('Data');
+        $data->fromArray([['Region', '=A1', 'Amount'], ['East', 'x', 12]]);
+        EasyExcelFake::$displayText = ['=A1' => '']; // an uncalculated formula has no text
+        $b = (new PivotTableBuilder($data, 'A1:C2'))->addDataField('Amount');
+        EasyExcelFake::$displayText = [];
+        try {
+            $b->build($s->createSheet(), 'A3');
+            T::ok(false, 'expected an exception');
+        } catch (Exception $e) {
+            T::ok(\str_contains($e->getMessage(), 'B1'), 'names the cell: ' . $e->getMessage());
+        }
+    },
+
+    'pivot: a failed write still counts as written, so clearing reaches the extension' => function (): void {
+        $s = pivotSalesWorkbook();
+        $report = $s->getSheetByName('Report');
+        $report->addPivotTable((new PivotTable('Bad'))->setGenerated(true)->setLocation('A3')->setCacheDefinition(
+            (new PivotCacheDefinition(1))->setSourceWorksheet('Data')->setSourceRange('A1:C5'),
+        ));
+        EasyExcelFake::$failPivotTables = true;
+        T::throws(\Throwable::class, fn () => pivotSave($s));
+        EasyExcelFake::$failPivotTables = false;
+        $report->removePivotTableCollection();
+        pivotSave($s);
+        $calls = EasyExcelFake::calls('set_pivot_tables');
+        T::same([], \end($calls)[1][2], 'the partly written set is cleared');
+    },
+
     // ------------------------------------------------- writing generated pivots
 
     'pivot: nothing is sent until save, then the spec reaches the extension' => function (): void {

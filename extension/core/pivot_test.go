@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -287,5 +289,259 @@ func TestResolvePart(t *testing.T) {
 		if got := resolvePart(c[0], c[1]); got != c[2] {
 			t.Errorf("resolvePart(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
 		}
+	}
+}
+
+// A set that fails part-way must stay tracked: the retry replaces the tables
+// already added instead of duplicating them.
+func TestSetPivotTablesPartialFailureIsRetried(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	if _, err := w.GetCell("Data", "A1", GetRaw); err != nil { // random mode: ops apply at once
+		t.Fatal(err)
+	}
+	second := `{"name":"B","sourceSheet":"%s","sourceRange":"A1:C4","location":"H3","data":[{"field":"Amount"}]}`
+	first := fmt.Sprintf(salesPivot, "A")
+	if err := w.SetPivotTables("Data", "["+first+","+fmt.Sprintf(second, "Gone")+"]"); err == nil {
+		t.Fatal("a missing source sheet must fail")
+	}
+	if err := w.SetPivotTables("Data", "["+first+","+fmt.Sprintf(second, "Data")+"]"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "retry.xlsx")
+	if err := w.SaveXlsx(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := pivotNames(t, path, "Data"); len(got) != 2 || got[0] != "A" || got[1] != "B" {
+		t.Errorf("after retry = %v, want [A B]", got)
+	}
+}
+
+// Deletion is by name, so a generated table may not take the name of a table
+// the loaded file carried: replacing it later would delete the file's own.
+func TestSetPivotTablesRejectsNameOfLoadedTable(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	spec := "[" + fmt.Sprintf(salesPivot, "PivotTable1") + "]"
+	if err := w.SetPivotTables("Data", spec); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src.xlsx")
+	if err := w.SaveXlsx(src, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if err := r.SetPivotTables("Data", spec); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v, want a name clash", err)
+	}
+	out := filepath.Join(t.TempDir(), "out.xlsx")
+	if err := r.SaveXlsx(out, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := pivotNames(t, out, "Data"); len(got) != 1 {
+		t.Errorf("tables = %v, want the file's own one only", got)
+	}
+}
+
+func TestSetPivotTablesRejectsSingleCellSource(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	spec := `[{"name":"P","sourceSheet":"Worksheet","sourceRange":"$A$1","location":"H3","data":[{"field":"x"}]}]`
+	if err := w.SetPivotTables("Worksheet", spec); err == nil {
+		t.Error("a one-cell source range must fail at the call site")
+	}
+}
+
+// Names differing only by case are one table to Excel.
+func TestSetPivotTablesNamesAreCaseInsensitive(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	two := "[" + fmt.Sprintf(salesPivot, "Sales") + "," + fmt.Sprintf(salesPivot, "SALES") + "]"
+	if err := w.SetPivotTables("Data", two); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("err = %v, want a duplicate name", err)
+	}
+	if err := w.SetPivotTables("Data", "["+fmt.Sprintf(salesPivot, "Sales")+"]"); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src.xlsx")
+	if err := w.SaveXlsx(src, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	// rejected at the call, from the names the file was loaded with
+	err = r.SetPivotTables("Data", "["+fmt.Sprintf(salesPivot, "sales")+"]")
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v, want a clash with the loaded table", err)
+	}
+}
+
+// A copied sheet must not share its source's pivot table parts: it gets no
+// pivot tables, reports none, and can be given its own.
+func TestCopySheetDropsPivotTables(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	if err := w.SetPivotTables("Data", "["+fmt.Sprintf(salesPivot, "Loaded")+"]"); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "src.xlsx")
+	if err := w.SaveXlsx(src, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	generated := "[" + fmt.Sprintf(salesPivot, "P") + "]"
+	if err := r.SetPivotTables("Data", generated); err != nil {
+		t.Fatal(err)
+	}
+	mid := filepath.Join(t.TempDir(), "mid.xlsx")
+	if err := r.SaveXlsx(mid, ""); err != nil { // the rels now list both tables
+		t.Fatal(err)
+	}
+	if _, err := r.CopySheetTo("Data", "Copy"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := r.LoadedPivotTablesJSON("Copy"); err != nil || out != "[]" {
+		t.Errorf("copy reports %q, %v; want no pivot tables", out, err)
+	}
+	if err := r.SetPivotTables("Copy", generated); err != nil {
+		t.Fatalf("the copy must accept a table named like its source's: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "out.xlsx")
+	if err := r.SaveXlsx(out, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := pivotNames(t, out, "Copy"); len(got) != 1 || got[0] != "P" {
+		t.Errorf("copy tables = %v, want [P]", got)
+	}
+	if got := pivotNames(t, out, "Data"); len(got) != 2 {
+		t.Errorf("source tables = %v, want its two", got)
+	}
+}
+
+// excelize cannot list, and so cannot delete from, a sheet holding a pivot
+// table with a non-worksheet cache source. A generated table there could
+// never be replaced, so it is refused before anything is written.
+func TestSetPivotTablesRefusesUnlistableSheet(t *testing.T) {
+	w, err := New(testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.RenameSheet("Worksheet", "Data"); err != nil {
+		t.Fatal(err)
+	}
+	writeSales(t, w, "Data")
+	if err := w.SetPivotTables("Data", "["+fmt.Sprintf(salesPivot, "Ext")+"]"); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(t.TempDir(), "plain.xlsx")
+	if err := w.SaveXlsx(plain, ""); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	// rewrite the cache source as an external one
+	src := filepath.Join(t.TempDir(), "external.xlsx")
+	zr, err := zip.OpenReader(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	dst, err := os.Create(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(dst)
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(f.Name, "xl/pivotCache/pivotCacheDefinition") {
+			from, to := strings.Index(string(data), "<cacheSource"), strings.Index(string(data), "</cacheSource>")
+			if from < 0 || to < 0 {
+				t.Fatalf("no cacheSource in %s", f.Name)
+			}
+			data = []byte(string(data[:from]) + `<cacheSource type="external" connectionId="1">` + string(data[to:]))
+		}
+		out, err := zw.Create(f.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := out.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Open(src, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	err = r.SetPivotTables("Data", "["+fmt.Sprintf(salesPivot, "Mine")+"]")
+	if err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+	// nothing was tracked, so clearing and saving still work
+	if err := r.SetPivotTables("Data", "[]"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SaveXlsx(filepath.Join(t.TempDir(), "out.xlsx"), ""); err != nil {
+		t.Fatal(err)
 	}
 }

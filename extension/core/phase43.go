@@ -2,7 +2,9 @@ package core
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"strconv"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -209,7 +211,63 @@ func (w *Workbook) CopySheetTo(from, newName string) (int, error) {
 	w.sheets[newName] = &sheetState{
 		maxRow: src.maxRow, maxCol: src.maxCol, dimsKnown: src.dimsKnown,
 	}
+	// excelize copies the worksheet's extLst, so the copy holds every
+	// sparkline its source has right now: the file's and the ones added since.
+	// To the copy they are all already written, so all are reported as loaded.
+	ext, ok := w.liveSparklineXML(newName)
+	if !ok {
+		ext = w.loadedSparklines[from]
+	}
+	if ext != "" {
+		// prefixes the source file declared outside the ext stay in scope
+		w.loadedSparklines[newName] = declareNamespaces(ext, startTagNamespaces([]byte(w.loadedSparklines[from])))
+	}
+	// excelize also copies the sheet's rels, which would link the copy to the
+	// very pivot table parts its source owns (located on the source sheet). A
+	// pivot table belongs to one sheet, so the copy gets none.
+	w.dropCopiedPivotRels(newName)
 	return idx, nil
+}
+
+// sheetRelsXML is a worksheet rels part, complete enough to write back.
+type sheetRelsXML struct {
+	XMLName      xml.Name `xml:"http://schemas.openxmlformats.org/package/2006/relationships Relationships"`
+	Relationship []struct {
+		ID         string `xml:"Id,attr"`
+		Type       string `xml:"Type,attr"`
+		Target     string `xml:"Target,attr"`
+		TargetMode string `xml:"TargetMode,attr,omitempty"`
+	} `xml:"Relationship"`
+}
+
+// dropCopiedPivotRels removes the pivot table relationships CopySheet carried
+// over to a new sheet's rels part.
+func (w *Workbook) dropCopiedPivotRels(sheet string) {
+	for id, name := range w.f.GetSheetMap() {
+		if name != sheet {
+			continue
+		}
+		part := "xl/worksheets/_rels/sheet" + strconv.Itoa(id) + ".xml.rels"
+		raw := pkgPart(w.f, part)
+		var rels sheetRelsXML
+		if raw == nil || xml.Unmarshal(raw, &rels) != nil {
+			return
+		}
+		kept := rels.Relationship[:0]
+		for _, r := range rels.Relationship {
+			if r.Type != relTypePivotTable {
+				kept = append(kept, r)
+			}
+		}
+		if len(kept) == len(rels.Relationship) {
+			return
+		}
+		rels.Relationship = kept
+		if out, err := xml.Marshal(rels); err == nil {
+			w.f.Pkg.Store(part, append([]byte(xml.Header), out...))
+		}
+		return
+	}
 }
 
 // sheetViewSpec mirrors the shim's SheetView / tab color payload.

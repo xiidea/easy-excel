@@ -285,6 +285,31 @@ return [
         T::same(1, \count(EasyExcelFake::calls('loaded_sparklines')), 'the file is asked once per sheet');
     },
 
+    'sparklines: reader finds an ext under a prefixed main namespace' => function (): void {
+        $s = new Spreadsheet();
+        EasyExcelFake::$loadedSparklines[$s->getHandle()]['Worksheet'] = \str_replace(
+            ['<ext ', '</ext>'],
+            ['<x:ext ', '</x:ext>'],
+            sparklineExtFixture(),
+        );
+        T::same(2, \count($s->getActiveSheet()->getSparklineGroupCollection()));
+    },
+
+    'sparklines: a failed load is retried whole, not left half-loaded' => function (): void {
+        $s = new Spreadsheet();
+        EasyExcelFake::$loadedSparklines[$s->getHandle()]['Worksheet'] = \str_replace('<xm:sqref>D3<', '<xm:sqref>D3:E3<', sparklineExtFixture());
+        $ws = $s->getActiveSheet();
+        T::throws(Exception::class, fn () => $ws->getSparklineGroupCollection(), 'a range sqref is rejected');
+        T::throws(Exception::class, fn () => $ws->getSparklineGroupCollection(), 'and again: no partial collection');
+        $path = \tempnam(\sys_get_temp_dir(), 'spark') . '.xlsx';
+        try {
+            (new Xlsx($s))->save($path);
+        } finally {
+            @\unlink($path);
+        }
+        T::same([], EasyExcelFake::calls('add_sparkline_group'), 'file groups are never re-sent');
+    },
+
     'sparklines: a save without touching sparklines never asks the extension' => function (): void {
         $s = new Spreadsheet();
         $path = \tempnam(\sys_get_temp_dir(), 'spark') . '.xlsx';
