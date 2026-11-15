@@ -5,6 +5,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"path"
+	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/xuri/excelize/v2"
@@ -72,44 +74,108 @@ func scanLoadedSparklines(f *excelize.File) map[string]string {
 	for sheet, part := range pkgSheetParts(f) {
 		data := pkgPart(f, part)
 		if ext := extElement(data, extURISparklineGroups); ext != "" {
-			out[sheet] = withRootNamespaces(ext, data)
+			out[sheet] = declareNamespaces(ext, ancestorNamespaces(data, bytes.Index(data, []byte(ext))))
 		}
 	}
 	return out
 }
 
-// withRootNamespaces makes an element cut out of a part self-contained: the
-// prefixes declared on the part's root element (x14, xr2, a prefixed main
-// namespace, ...) are redeclared on the element unless it declares them
-// itself. Without them a parser sees every such prefix as undefined.
-func withRootNamespaces(element string, part []byte) string {
-	tagEnd := strings.IndexByte(element, '>')
-	nameEnd := strings.IndexAny(element, " \t\r\n/>")
-	if tagEnd < 0 || nameEnd < 0 {
-		return element
-	}
-	dec := xml.NewDecoder(bytes.NewReader(part))
-	var decls strings.Builder
+// startTagNamespaces returns the xmlns:prefix declarations on the first start
+// tag in data, nil if there is none.
+func startTagNamespaces(data []byte) []xml.Attr {
+	dec := xml.NewDecoder(bytes.NewReader(data))
 	for {
 		tok, err := dec.RawToken()
 		if err != nil {
-			return element
+			return nil
 		}
-		root, ok := tok.(xml.StartElement)
+		start, ok := tok.(xml.StartElement)
 		if !ok {
 			continue
 		}
-		for _, a := range root.Attr {
-			if a.Name.Space != "xmlns" || strings.Contains(element[:tagEnd], "xmlns:"+a.Name.Local+"=") {
-				continue
+		var out []xml.Attr
+		for _, a := range start.Attr {
+			if a.Name.Space == "xmlns" {
+				out = append(out, a)
 			}
-			decls.WriteString(" xmlns:" + a.Name.Local + `="`)
-			_ = xml.EscapeText(&decls, []byte(a.Value))
-			decls.WriteByte('"')
 		}
-		break
+		return out
+	}
+}
+
+// ancestorNamespaces lists the prefixes in scope for the <ext> element that
+// starts at extStart in a worksheet part, nearest declaration first: an ext
+// sits in the worksheet's extLst, so those are the extLst's own declarations
+// and then the root element's.
+func ancestorNamespaces(part []byte, extStart int) []xml.Attr {
+	var out []xml.Attr
+	if extStart > 0 {
+		if lt := bytes.LastIndexByte(part[:extStart], '<'); lt >= 0 {
+			out = startTagNamespaces(part[lt:extStart])
+		}
+	}
+	return append(out, startTagNamespaces(part)...)
+}
+
+// declareNamespaces makes an element cut out of a part self-contained: each
+// prefix in inScope (x14, xr2, a prefixed main namespace, ...) is declared on
+// the element unless the element, or an earlier entry, already declares it.
+// Without them a parser sees every such prefix as undefined.
+func declareNamespaces(element string, inScope []xml.Attr) string {
+	nameEnd := strings.IndexAny(element, " \t\r\n/>")
+	if nameEnd < 0 || len(inScope) == 0 {
+		return element
+	}
+	declared := map[string]bool{}
+	for _, a := range startTagNamespaces([]byte(element)) {
+		declared[a.Name.Local] = true
+	}
+	var decls strings.Builder
+	for _, a := range inScope {
+		if declared[a.Name.Local] {
+			continue
+		}
+		declared[a.Name.Local] = true
+		decls.WriteString(" xmlns:" + a.Name.Local + `="`)
+		_ = xml.EscapeText(&decls, []byte(a.Value))
+		decls.WriteByte('"')
 	}
 	return element[:nameEnd] + decls.String() + element[nameEnd:]
+}
+
+// liveSparklineXML returns the sparkline <ext> element sheet's worksheet
+// holds right now, "" when it has none. Unlike loadedSparklines this includes
+// groups added since the file was opened. ok is false when the worksheet
+// cannot be inspected.
+func (w *Workbook) liveSparklineXML(sheet string) (ext string, ok bool) {
+	for id, name := range w.f.GetSheetMap() {
+		if name != sheet {
+			continue
+		}
+		// a sheet made by NewSheet lives at this path; excelize keeps the
+		// extLst as raw inner XML in an unexported type, hence the reflection
+		ws, found := w.f.Sheet.Load("xl/worksheets/sheet" + strconv.Itoa(id) + ".xml")
+		if !found {
+			return "", false
+		}
+		v := reflect.Indirect(reflect.ValueOf(ws))
+		if v.Kind() != reflect.Struct {
+			return "", false
+		}
+		lst := v.FieldByName("ExtLst")
+		if !lst.IsValid() || lst.Kind() != reflect.Pointer {
+			return "", false
+		}
+		if lst.IsNil() {
+			return "", true
+		}
+		raw := lst.Elem().FieldByName("Ext")
+		if !raw.IsValid() || raw.Kind() != reflect.String {
+			return "", false
+		}
+		return extElement([]byte(raw.String()), extURISparklineGroups), true
+	}
+	return "", false
 }
 
 // pkgSheetParts maps sheet names to worksheet part paths from the workbook

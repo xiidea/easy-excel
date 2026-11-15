@@ -322,6 +322,12 @@ clear "not yet supported" exception. Phase numbers refer to PLAN.md §13.
     leaves the previous table and cache parts in the package, unreferenced.
     Excel and LibreOffice ignore unreferenced parts; only the file size
     grows. A fresh `Spreadsheet` per export avoids it altogether.
+    `DeletePivotTable` also has to list a sheet's tables first, which
+    excelize cannot do when one of them has a non-worksheet cache source
+    (external, consolidation). A generated table on such a sheet could never
+    be replaced, so the save refuses to add one there; put it on another
+    sheet. A sheet copied with `copySheet()` gets none of its source's pivot
+    tables, as a pivot table part belongs to one sheet.
 35. **Loaded sparklines are exposed for in-memory worksheet parts only** —
     excelize keeps parts above its 16 MB in-memory XML limit in temp files it
     does not expose, so a sheet whose XML exceeds that reports an empty

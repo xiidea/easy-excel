@@ -2,6 +2,8 @@ package core
 
 import (
 	"archive/zip"
+	"bytes"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -196,25 +198,36 @@ func TestExtElement(t *testing.T) {
 	}
 }
 
-func TestWithRootNamespaces(t *testing.T) {
-	part := []byte(`<?xml version="1.0"?><worksheet xmlns="main" xmlns:x14="u14" xmlns:xr2="rev2&amp;x"><sheetData/></worksheet>`)
-	got := withRootNamespaces(`<ext xmlns:x14="u14" uri="{U}"><x14:g xr2:uid="1"/></ext>`, part)
-	want := `<ext xmlns:xr2="rev2&amp;x" xmlns:x14="u14" uri="{U}"><x14:g xr2:uid="1"/></ext>`
+func TestDeclareNamespaces(t *testing.T) {
+	part := []byte(`<?xml version="1.0"?><worksheet xmlns="main" xmlns:x14="u14" xmlns:xr2="rev2&amp;x" xmlns:xm="outer"><sheetData/>` +
+		`<extLst xmlns:xm="inner"><ext xmlns:x14 = "u14" uri="{U}"><x14:g xr2:uid="1"/></ext></extLst></worksheet>`)
+	ext := extElement(part, "{U}")
+	got := declareNamespaces(ext, ancestorNamespaces(part, bytes.Index(part, []byte(ext))))
+	// x14 is the ext's own (however it is spelled), xm comes from the nearer
+	// extLst rather than the root, xr2 from the root
+	want := `<ext xmlns:xm="inner" xmlns:xr2="rev2&amp;x" xmlns:x14 = "u14" uri="{U}"><x14:g xr2:uid="1"/></ext>`
 	if got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
-	if same := withRootNamespaces(`<ext uri="{U}"/>`, []byte("not xml <")); same != `<ext uri="{U}"/>` {
+	if same := declareNamespaces(`<ext uri="{U}"/>`, ancestorNamespaces([]byte("not xml <"), 0)); same != `<ext uri="{U}"/>` {
 		t.Errorf("an unreadable part must leave the element alone, got %s", same)
 	}
 }
 
-func TestCopySheetCarriesLoadedSparklines(t *testing.T) {
+// The copy physically gets every sparkline its source holds, the file's and
+// the ones added since the load, and must report exactly what the saved file
+// then contains.
+func TestCopySheetCarriesSparklines(t *testing.T) {
 	w, err := New(testEnv())
 	if err != nil {
 		t.Fatal(err)
 	}
 	fillRows(t, w, "Worksheet", 1, 3)
-	if err := w.AddSparklineGroup("Worksheet", `{"type":"line","sparklines":[{"location":"E2","dataRange":"Worksheet!A2:C2"}]}`); err != nil {
+	group := `{"type":"line","sparklines":[{"location":"%s","dataRange":"Worksheet!A2:C2"}]}`
+	if err := w.AddSparklineGroup("Worksheet", fmt.Sprintf(group, "E2")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.AddSheet("Plain"); err != nil {
 		t.Fatal(err)
 	}
 	src := filepath.Join(t.TempDir(), "src.xlsx")
@@ -227,10 +240,38 @@ func TestCopySheetCarriesLoadedSparklines(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
+	if err := r.AddSparklineGroup("Worksheet", fmt.Sprintf(group, "E3")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := r.CopySheetTo("Worksheet", "Copy"); err != nil {
 		t.Fatal(err)
 	}
-	if ext, _ := r.LoadedSparklineXML("Copy"); !strings.Contains(ext, "sparklineGroup") {
-		t.Error("the copy carries the source's sparklines in the file, so it must report them")
+	if _, err := r.CopySheetTo("Plain", "PlainCopy"); err != nil {
+		t.Fatal(err)
+	}
+	ext, _ := r.LoadedSparklineXML("Copy")
+	if n := strings.Count(ext, "<x14:sparklineGroup "); n != 2 {
+		t.Errorf("copy reports %d groups, want the loaded and the added one: %s", n, ext)
+	}
+	if ext, _ := r.LoadedSparklineXML("PlainCopy"); ext != "" {
+		t.Errorf("a copy of a sheet without sparklines reports %q", ext)
+	}
+	if ext, _ := r.LoadedSparklineXML("Worksheet"); strings.Count(ext, "<x14:sparklineGroup ") != 1 {
+		t.Errorf("the source still reports the file's groups only, got %s", ext)
+	}
+	out := filepath.Join(t.TempDir(), "out.xlsx")
+	if err := r.SaveXlsx(out, ""); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := Open(out, "", testEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer saved.Close()
+	for _, sheet := range []string{"Worksheet", "Copy"} {
+		ext, _ := saved.LoadedSparklineXML(sheet)
+		if n := strings.Count(ext, "<x14:sparklineGroup "); n != 2 {
+			t.Errorf("saved %s holds %d groups, want 2: %s", sheet, n, ext)
+		}
 	}
 }

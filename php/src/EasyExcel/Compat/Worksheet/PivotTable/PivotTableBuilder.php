@@ -23,8 +23,21 @@ class PivotTableBuilder
 {
     private readonly string $sourceRange;
 
-    /** @var list<string> in source-column order */
+    /**
+     * The header row as displayed (formatted text), which is the name
+     * excelize gives each field.
+     *
+     * @var list<string> in source-column order
+     */
     private readonly array $fieldNames;
+
+    /**
+     * Raw header values whose displayed text differs, e.g. the number 2024
+     * shown as "2,024": callers may name a field either way.
+     *
+     * @var array<string, string> raw value => field name
+     */
+    private readonly array $fieldAliases;
 
     /** @var array<string, array{axis: string, subtotal: ?string, caption: ?string}> */
     private array $placements = [];
@@ -36,7 +49,7 @@ class PivotTableBuilder
     public function __construct(private readonly Worksheet $sourceWorksheet, string $sourceRange)
     {
         $this->sourceRange = \str_replace('$', '', $sourceRange);
-        $this->fieldNames = $this->readHeaderNames();
+        [$this->fieldNames, $this->fieldAliases] = $this->readHeaderNames();
     }
 
     public function addRowField(string $fieldName): self
@@ -58,7 +71,7 @@ class PivotTableBuilder
     /** Stored on the cache definition but not written (COMPAT.md divergence 33). */
     public function groupFieldByNumericRange(string $fieldName, float $interval, ?float $startNum = null, ?float $endNum = null): self
     {
-        $this->assertFieldExists($fieldName);
+        $fieldName = $this->resolveField($fieldName);
         $this->groups[$fieldName] = PivotFieldGroup::numeric($interval, $startNum, $endNum);
 
         return $this;
@@ -71,7 +84,7 @@ class PivotTableBuilder
      */
     public function groupFieldByDate(string $fieldName, array|string $groupBy, ?string $startDate = null, ?string $endDate = null): self
     {
-        $this->assertFieldExists($fieldName);
+        $fieldName = $this->resolveField($fieldName);
         $this->groups[$fieldName] = PivotFieldGroup::date($groupBy, $startDate, $endDate);
 
         return $this;
@@ -87,6 +100,7 @@ class PivotTableBuilder
     public function build(Worksheet $targetWorksheet, string $targetCell, string $name = 'PivotTable1'): PivotTable
     {
         $this->assertHasDataField();
+        $this->assertHeadersNamed();
 
         $cache = (new PivotCacheDefinition(1))
             ->setSourceWorksheet($this->sourceWorksheet->getTitle())
@@ -127,16 +141,36 @@ class PivotTableBuilder
 
     private function place(string $fieldName, string $axis, ?string $subtotal, ?string $caption): self
     {
-        $this->assertFieldExists($fieldName);
-        $this->placements[$fieldName] = ['axis' => $axis, 'subtotal' => $subtotal, 'caption' => $caption];
+        $this->placements[$this->resolveField($fieldName)] = ['axis' => $axis, 'subtotal' => $subtotal, 'caption' => $caption];
 
         return $this;
     }
 
-    private function assertFieldExists(string $fieldName): void
+    /** The field a caller means by $fieldName: its displayed header, or the raw value behind one. */
+    private function resolveField(string $fieldName): string
     {
-        if (!\in_array($fieldName, $this->fieldNames, true)) {
-            throw new Exception("Pivot source field '{$fieldName}' does not exist in range {$this->sourceRange}");
+        if (\in_array($fieldName, $this->fieldNames, true)) {
+            return $fieldName;
+        }
+        if (isset($this->fieldAliases[$fieldName])) {
+            return $this->fieldAliases[$fieldName];
+        }
+
+        throw new Exception("Pivot source field '{$fieldName}' does not exist in range {$this->sourceRange}");
+    }
+
+    /**
+     * Every source column needs a header excelize can read at save. A formula
+     * header has no text until the workbook is calculated, so it reads empty.
+     */
+    private function assertHeadersNamed(): void
+    {
+        $empty = \array_search('', $this->fieldNames, true);
+        if ($empty !== false) {
+            [[$startCol, $headerRow]] = Coordinate::rangeBoundaries($this->sourceRange);
+            $cell = Coordinate::stringFromColumnIndex($startCol + $empty) . $headerRow;
+
+            throw new Exception("Pivot source range {$this->sourceRange} has no header text in {$cell}; a header must be a value, not an uncalculated formula");
         }
     }
 
@@ -151,17 +185,25 @@ class PivotTableBuilder
         throw new Exception('A pivot table requires at least one data (value) field');
     }
 
-    /** @return list<string> */
+    /** @return array{list<string>, array<string, string>} field names and raw-value aliases */
     private function readHeaderNames(): array
     {
         [[$startCol, $headerRow], [$endCol]] = Coordinate::rangeBoundaries($this->sourceRange);
+        $toString = static fn (mixed $v): string => StringHelper::convertToString($v, false);
 
-        return \array_map(
-            static fn (mixed $v): string => StringHelper::convertToString($v, false),
-            // formatted text: it is what excelize resolves field names against,
-            // and a raw read would turn a text header like "007" into 7
-            $this->readRows($startCol, $headerRow, $endCol, $headerRow, true)[0] ?? [],
-        );
+        // formatted text: it is what excelize resolves field names against,
+        // and a raw read would turn a text header like "007" into 7
+        $names = \array_map($toString, $this->readRows($startCol, $headerRow, $endCol, $headerRow, true)[0] ?? []);
+        $aliases = [];
+        foreach (\array_map($toString, $this->readRows($startCol, $headerRow, $endCol, $headerRow)[0] ?? []) as $i => $raw) {
+            $name = $names[$i] ?? '';
+            // a displayed header always wins over another column's raw value
+            if ($name !== '' && $raw !== $name && !\in_array($raw, $names, true) && !isset($aliases[$raw])) {
+                $aliases[$raw] = $name;
+            }
+        }
+
+        return [$names, $aliases];
     }
 
     /** @return array<string, list<string>> distinct non-empty values per field, first-seen order */
@@ -183,7 +225,7 @@ class PivotTableBuilder
         return \array_map(static fn (array $values): array => \array_map('strval', \array_keys($values)), $seen);
     }
 
-    /** @return list<list<mixed>> raw values (formulas as source), like Cell::getValue() */
+    /** @return list<list<mixed>> raw values (formulas as source, like Cell::getValue()), or displayed text when $formatted */
     private function readRows(int $startCol, int $startRow, int $endCol, int $endRow, bool $formatted = false): array
     {
         $range = Coordinate::stringFromColumnIndex($startCol) . $startRow

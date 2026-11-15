@@ -844,31 +844,34 @@ class Worksheet
         if ($this->sparklineGroups !== null) {
             return $this->sparklineGroups;
         }
+        // set first: the reader adds its groups through this collection
         $this->sparklineGroups = new \ArrayObject();
-        $ext = $this->parent !== null ? Native::loadedSparklines($this->workbookHandle(), $this->title) : '';
-        if ($ext !== '') {
-            $xml = \simplexml_load_string(
-                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
-                . ' xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
-                . ' xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"'
-                . ' xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"'
-                . ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
-                . '<extLst>' . $ext . '</extLst></worksheet>',
-            );
-            try {
+        try {
+            $ext = $this->parent !== null ? Native::loadedSparklines($this->workbookHandle(), $this->title) : '';
+            if ($ext !== '') {
+                $xml = \simplexml_load_string(
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+                    . ' xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+                    . ' xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"'
+                    . ' xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main"'
+                    . ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
+                    . '<extLst>' . $ext . '</extLst></worksheet>',
+                );
                 if ($xml === false) {
                     throw new Exception("Could not parse the sparklines of worksheet \"{$this->title}\"");
                 }
                 (new SparklinesReader($this, $xml))->load();
-            } catch (\Throwable $e) {
-                // not half-loaded: groups left unfrozen would be re-sent on save
-                $this->sparklineGroups = null;
+                foreach ($this->sparklineGroups as $group) {
+                    $group->markWritten();
+                }
+            }
+        } catch (\Throwable $e) {
+            // neither half-loaded (groups left unfrozen would be re-sent on
+            // save) nor empty-but-loaded (the file's groups would never be
+            // read): the next call starts over
+            $this->sparklineGroups = null;
 
-                throw $e;
-            }
-            foreach ($this->sparklineGroups as $group) {
-                $group->markWritten();
-            }
+            throw $e;
         }
 
         return $this->sparklineGroups;

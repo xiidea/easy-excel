@@ -26,6 +26,9 @@ final class EasyExcelFake
     /** Makes easy_excel_set_pivot_tables fail after logging, like a table the engine rejects. */
     public static bool $failPivotTables = false;
 
+    /** @var array<string, string> raw cell text => what a formatted (non-raw) row read shows instead */
+    public static array $displayText = [];
+
     /**
      * Canned calculated results keyed by cell ref, so tests can exercise the
      * shim's handling of what the engine returns without a real calc engine.
@@ -41,6 +44,7 @@ final class EasyExcelFake
         self::$loadedSparklines = [];
         self::$loadedPivots = [];
         self::$failPivotTables = false;
+        self::$displayText = [];
         self::$store = [];
         self::$log = [];
         self::$calculated = [];
@@ -265,7 +269,8 @@ function easy_excel_read_rows(int $handle, string $sheet, int $startRow, int $ma
         $rowCells = $s['cells'][$r] ?? [];
         $width = $rowCells === [] ? 0 : \max(\array_keys($rowCells));
         for ($c = 1; $c <= $width; ++$c) {
-            $cols[] = isset($rowCells[$c]) ? EasyExcelFake::stringify($rowCells[$c]) : '';
+            $text = isset($rowCells[$c]) ? EasyExcelFake::stringify($rowCells[$c]) : '';
+            $cols[] = $raw ? $text : (EasyExcelFake::$displayText[$text] ?? $text);
         }
         $out[] = $cols;
     }
